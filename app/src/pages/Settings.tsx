@@ -188,177 +188,179 @@ function Settings() {
 
   return (
     <div className="max-w-3xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Settings</h1>
-        <p className="text-sm text-[#a1a1aa]">Manage your account settings and preferences</p>
+      <div className="mb-5">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#71717a]">Account</div>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-white">Settings</h1>
+        <p className="text-xs text-[#a1a1aa]">Manage your account, notifications and desktop updates.</p>
       </div>
 
-      <div className="space-y-6">
-        <Card className="bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#1f1f23] overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">Profile Information</CardTitle>
-            <CardDescription className="text-xs text-[#71717a]">Update your account details</CardDescription>
+      <div className="space-y-3">
+        <Card className="gap-0 overflow-hidden rounded-md border-[#1f1f23] bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-white">Profile</CardTitle>
+            <CardDescription className="text-xs text-[#71717a]">Update your account details.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium text-[#a1a1aa]">Full Name</Label>
+          <CardContent className="space-y-3 p-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="text-xs font-medium text-[#a1a1aa]">Full name</Label>
                 <Input
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="h-11 bg-[#18181b] border-[#27272a] text-white focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20"
+                  className="h-8 rounded-md border-[#27272a] bg-[#18181b] text-xs text-white focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-[#a1a1aa]">Email Address</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-xs font-medium text-[#a1a1aa]">Email address</Label>
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 bg-[#18181b] border-[#27272a] text-white focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20"
+                  className="h-8 rounded-md border-[#27272a] bg-[#18181b] text-xs text-white focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
             </div>
-            <Button 
+            <Button
               onClick={handleSaveProfile}
               disabled={isSaving}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-medium"
+              className="h-8 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-500"
             >
-              {isSaving ? 'Saving...' : 'Save Changes'}
+              {isSaving ? 'Saving…' : 'Save changes'}
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#1f1f23] overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">Notifications</CardTitle>
-            <CardDescription className="text-xs text-[#71717a]">Configure your notification preferences</CardDescription>
+        <Card className="gap-0 overflow-hidden rounded-md border-[#1f1f23] bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-white">Notifications</CardTitle>
+            <CardDescription className="text-xs text-[#71717a]">Configure your notification preferences.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">Email Notifications</Label>
-                <p className="text-xs text-[#71717a]">Receive email updates about your account</p>
+                <Label className="text-xs font-medium text-white">Email notifications</Label>
+                <p className="text-[11px] text-[#71717a]">Receive email updates about your account.</p>
               </div>
               <Switch defaultChecked />
             </div>
             <Separator className="bg-[#27272a]" />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">Low Balance Alerts</Label>
-                <p className="text-xs text-[#71717a]">Get notified when your balance is low</p>
+                <Label className="text-xs font-medium text-white">Low balance alerts</Label>
+                <p className="text-[11px] text-[#71717a]">Get notified when your balance is low.</p>
               </div>
               <Switch defaultChecked />
             </div>
             <Separator className="bg-[#27272a]" />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">Marketing Emails</Label>
-                <p className="text-xs text-[#71717a]">Receive updates about new features and offers</p>
+                <Label className="text-xs font-medium text-white">Marketing emails</Label>
+                <p className="text-[11px] text-[#71717a]">Receive updates about new features and offers.</p>
               </div>
               <Switch />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#1f1f23] overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">Streaming / Capture Setup</CardTitle>
-            <CardDescription className="text-xs text-[#71717a]">Learn how to send Surevideotool into SplitCam, OBS, Zoom, WhatsApp & more</CardDescription>
+        <Card className="gap-0 overflow-hidden rounded-md border-[#1f1f23] bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-white">Streaming &amp; capture</CardTitle>
+            <CardDescription className="text-xs text-[#71717a]">Route Surevideotool into SplitCam, OBS, Zoom, WhatsApp and more.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">SplitCam / OBS Guide</Label>
-                <p className="text-xs text-[#71717a]">Step-by-step instructions for capturing the Surevideotool feed and routing it into video apps</p>
+                <Label className="text-xs font-medium text-white">SplitCam / OBS guide</Label>
+                <p className="text-[11px] text-[#71717a]">Step-by-step instructions for capturing the feed in video apps.</p>
               </div>
-              <Button 
+              <Button
                 onClick={() => setIsGuideModalOpen(true)}
-                className="bg-blue-600 hover:bg-blue-500 text-white font-medium"
+                className="h-8 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-500"
               >
-                View Guide
+                View guide
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden rounded-2xl border-[#1f1f23] bg-gradient-to-br from-[#131316] to-[#0f0f10] shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <Card className="gap-0 overflow-hidden rounded-md border-[#1f1f23] bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <CardTitle className="text-lg font-semibold tracking-tight text-white">Software Updates</CardTitle>
+                <CardTitle className="text-sm font-semibold tracking-tight text-white">Software updates</CardTitle>
                 <CardDescription className="text-xs text-[#71717a]">
-                  Check for new desktop builds, validate the download, and install when you are ready.
+                  Check for new desktop builds, validate the download, and install when ready.
                 </CardDescription>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={desktopUpdateState.updateAvailable ? 'default' : 'secondary'}>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant={desktopUpdateState.updateAvailable ? 'default' : 'secondary'} className="rounded px-1.5 py-0 text-[10px] font-medium">
                   {desktopUpdateState.updateAvailable ? 'Update available' : 'Up to date'}
                 </Badge>
-                <Badge variant="outline">{formatUpdatePackageType(desktopUpdateState.packageType)}</Badge>
-                <Badge variant="outline">{formatUpdateInstallMode(desktopUpdateState.installMode)}</Badge>
+                <Badge variant="outline" className="rounded px-1.5 py-0 text-[10px] font-medium">{formatUpdatePackageType(desktopUpdateState.packageType)}</Badge>
+                <Badge variant="outline" className="rounded px-1.5 py-0 text-[10px] font-medium">{formatUpdateInstallMode(desktopUpdateState.installMode)}</Badge>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-5 p-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-[#27272a] bg-[#18181b]/70 p-4">
-                <p className="text-xs uppercase tracking-[0.24em] text-[#71717a]">Current Version</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{desktopUpdateState.currentVersion}</p>
-                <p className="mt-2 text-xs text-[#a1a1aa]">Installed on this device right now.</p>
+          <CardContent className="space-y-3 p-4">
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#27272a] bg-[#27272a]">
+              <div className="bg-[#18181b] px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#71717a]">Current version</p>
+                <p className="mt-1 text-base font-semibold tabular-nums text-white">{desktopUpdateState.currentVersion}</p>
+                <p className="mt-0.5 text-[11px] text-[#a1a1aa]">Installed on this device.</p>
               </div>
-              <div className="rounded-2xl border border-[#27272a] bg-[#18181b]/70 p-4">
-                <p className="text-xs uppercase tracking-[0.24em] text-[#71717a]">Latest Version</p>
-                <p className="mt-2 text-2xl font-semibold text-white">
+              <div className="bg-[#18181b] px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#71717a]">Latest version</p>
+                <p className="mt-1 text-base font-semibold tabular-nums text-white">
                   {desktopUpdateState.latestVersion || 'Not checked yet'}
                 </p>
-                <p className="mt-2 text-xs text-[#a1a1aa]">
+                <p className="mt-0.5 text-[11px] text-[#a1a1aa]">
                   {desktopUpdateState.updateAvailable
                     ? 'A newer build is ready to download.'
-                    : 'The updater will refresh this after it checks the manifest.'}
+                    : 'Refreshes after the next manifest check.'}
                 </p>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[#27272a] bg-[#18181b]/80 p-4 shadow-inner shadow-black/10">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="rounded-md border border-[#27272a] bg-[#18181b] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-white">Update Status</p>
-                  <p className="text-xs text-[#71717a]">{updateProgressLabel()}</p>
+                  <p className="text-xs font-medium text-white">Update status</p>
+                  <p className="text-[11px] text-[#71717a]">{updateProgressLabel()}</p>
                 </div>
                 <Badge
                   variant={desktopUpdateState.error ? 'destructive' : desktopUpdateState.readyToInstall ? 'default' : 'secondary'}
+                  className="rounded px-1.5 py-0 text-[10px] font-medium"
                 >
                   {desktopUpdateState.status.replace(/-/g, ' ')}
                 </Badge>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <Progress
                   value={desktopUpdateState.downloadInProgress || desktopUpdateState.readyToInstall ? desktopUpdateState.downloadProgress.percent : desktopUpdateState.updateAvailable ? 10 : 0}
-                  className="h-2 bg-[#27272a]"
+                  className="h-1.5 bg-[#27272a]"
                 />
               </div>
 
-              <div className="mt-4 grid gap-3 text-xs text-[#a1a1aa] sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 text-[11px] text-[#a1a1aa] sm:grid-cols-2">
                 <div>
                   <p className="text-[#71717a]">Downloaded file</p>
-                  <p className="mt-1 font-medium text-white">
+                  <p className="mt-0.5 font-medium text-white">
                     {desktopUpdateState.downloadedFileName || 'Waiting for download'}
                   </p>
-                  <p className="mt-1 text-[#a1a1aa]">
+                  <p className="mt-0.5 text-[#a1a1aa]">
                     {desktopUpdateState.downloadInProgress
                       ? formatBytes(desktopUpdateState.downloadProgress.transferredBytes)
                       : desktopUpdateState.readyToInstall
                         ? 'Validated and ready to install'
-                        : 'The updater will fill this in once the file arrives.'}
+                        : 'Filled in once the file arrives.'}
                   </p>
                 </div>
                 <div>
                   <p className="text-[#71717a]">Checksum</p>
-                  <p className="mt-1 text-white">
+                  <p className="mt-0.5 text-white">
                     {desktopUpdateState.checksum
                       ? desktopUpdateState.checksumVerified === true
                         ? 'Verified'
@@ -369,101 +371,99 @@ function Settings() {
               </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-1">
-              <div className="rounded-2xl border border-[#27272a] bg-[#18181b]/70 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Release Notes</p>
-                    <p className="text-xs text-[#71717a]">What changed in the latest build.</p>
-                  </div>
+            <div className="rounded-md border border-[#27272a] bg-[#18181b] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-white">Release notes</p>
+                  <p className="text-[11px] text-[#71717a]">What changed in the latest build.</p>
                 </div>
-                <div className="mt-4 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-[#27272a] bg-black/20 p-3 text-xs leading-6 text-[#d4d4d8]">
-                  {desktopUpdateState.releaseNotes || 'No release notes were provided with this manifest.'}
-                </div>
+              </div>
+              <div className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded border border-[#27272a] bg-black/30 p-2.5 text-[11px] leading-5 text-[#d4d4d8]">
+                {desktopUpdateState.releaseNotes || 'No release notes were provided with this manifest.'}
               </div>
             </div>
 
             {desktopUpdateState.error && (
-              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
                 <p className="font-semibold">Updater error</p>
-                <p className="mt-1 break-words text-xs leading-6 text-red-100/90">{desktopUpdateState.error}</p>
+                <p className="mt-1 break-words text-[11px] leading-5 text-red-100/90">{desktopUpdateState.error}</p>
               </div>
             )}
 
             {!isDesktopUpdatesAvailable && (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                Desktop updates are only available in the packaged Electron app. The web app will keep updating through normal deploys.
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-100">
+                Desktop updates are only available in the packaged Electron app. The web app updates through normal deploys.
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <Button
                 onClick={handleCheckForUpdates}
                 disabled={!isDesktopUpdatesAvailable || desktopUpdateState.checkInProgress || desktopUpdateState.downloadInProgress || desktopUpdateState.installInProgress}
-                className="bg-green-600 font-medium text-white hover:bg-green-500"
+                className="h-8 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-500"
               >
                 {desktopUpdateState.checkInProgress
-                  ? 'Checking...'
+                  ? 'Checking…'
                   : desktopUpdateState.downloadInProgress
-                    ? 'Downloading...'
-                    : 'Check for Updates'}
+                    ? 'Downloading…'
+                    : 'Check for updates'}
               </Button>
               <Button
                 onClick={handleDownloadUpdate}
                 disabled={!isDesktopUpdatesAvailable || desktopUpdateState.downloadInProgress || desktopUpdateState.installInProgress || desktopUpdateState.readyToInstall}
-                className="bg-blue-600 font-medium text-white hover:bg-blue-500"
+                className="h-8 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-500"
               >
-                Download Update
+                Download update
               </Button>
               <Button
                 onClick={handleInstallUpdate}
                 disabled={!isDesktopUpdatesAvailable || !desktopUpdateState.readyToInstall || desktopUpdateState.installInProgress}
-                className="bg-white font-bold text-black hover:bg-[#e4e4e7]"
+                className="h-8 rounded-md bg-white px-3 text-xs font-bold text-black hover:bg-[#e4e4e7]"
               >
                 {desktopUpdateState.installInProgress
-                  ? 'Launching...'
+                  ? 'Launching…'
                   : desktopUpdateState.canAutoInstall
-                    ? 'Restart to Install'
-                    : 'Show Download'}
+                    ? 'Restart to install'
+                    : 'Show download'}
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <StreamGuideModal 
-          isOpen={isGuideModalOpen} 
-          onClose={() => setIsGuideModalOpen(false)} 
+        <StreamGuideModal
+          isOpen={isGuideModalOpen}
+          onClose={() => setIsGuideModalOpen(false)}
         />
 
-        <Card className="bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#1f1f23] overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">Contact &amp; Support</CardTitle>
-            <CardDescription className="text-xs text-[#71717a]">Reach out for help or feedback</CardDescription>
+        <Card className="gap-0 overflow-hidden rounded-md border-[#1f1f23] bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-white">Contact &amp; support</CardTitle>
+            <CardDescription className="text-xs text-[#71717a]">Reach out for help or feedback.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">Email Support</Label>
-                <p className="text-xs text-[#71717a]">samuellucky2424@gmail.com</p>
+                <Label className="text-xs font-medium text-white">Email support</Label>
+                <p className="text-[11px] text-[#71717a]">samuellucky2424@gmail.com</p>
               </div>
               <Button
                 onClick={() => { window.open('mailto:samuellucky2424@gmail.com', '_blank'); }}
                 variant="outline"
-                className="border-[#27272a] text-[#a1a1aa] hover:text-white hover:bg-[#27272a]"
+                className="h-8 rounded-md border-[#27272a] bg-transparent px-3 text-xs text-[#a1a1aa] hover:bg-[#27272a] hover:text-white"
               >
-                Send Email
+                Send email
               </Button>
             </div>
             <Separator className="bg-[#27272a]" />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">WhatsApp</Label>
-                <p className="text-xs text-[#71717a]">+234 703 819 5038</p>
+                <Label className="text-xs font-medium text-white">WhatsApp</Label>
+                <p className="text-[11px] text-[#71717a]">+234 703 819 5038</p>
               </div>
               <Button
                 onClick={() => { window.open('https://wa.me/2347038195038', '_blank'); }}
                 variant="outline"
-                className="border-[#27272a] text-[#a1a1aa] hover:text-white hover:bg-[#27272a]"
+                className="h-8 rounded-md border-[#27272a] bg-transparent px-3 text-xs text-[#a1a1aa] hover:bg-[#27272a] hover:text-white"
               >
                 Open WhatsApp
               </Button>
@@ -471,23 +471,23 @@ function Settings() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#1f1f23] overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
-          <CardHeader className="border-b border-[#1f1f23]">
-            <CardTitle className="text-lg font-semibold text-white tracking-tight">Danger Zone</CardTitle>
-            <CardDescription className="text-xs text-[#71717a]">Irreversible actions</CardDescription>
+        <Card className="gap-0 overflow-hidden rounded-md border-red-500/20 bg-[#0f0f10] shadow-none">
+          <CardHeader className="border-b border-[#1f1f23] px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-white">Danger zone</CardTitle>
+            <CardDescription className="text-xs text-[#71717a]">Irreversible actions.</CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium text-white">Sign Out</Label>
-                <p className="text-xs text-[#71717a]">Sign out of your account on this device</p>
+                <Label className="text-xs font-medium text-white">Sign out</Label>
+                <p className="text-[11px] text-[#71717a]">Sign out of your account on this device.</p>
               </div>
-              <Button 
+              <Button
                 onClick={logout}
                 variant="outline"
-                className="border-[#27272a] text-[#a1a1aa] hover:text-white hover:bg-[#27272a]"
+                className="h-8 rounded-md border-red-500/30 bg-transparent px-3 text-xs text-red-200 hover:bg-red-500/10 hover:text-red-100"
               >
-                Sign Out
+                Sign out
               </Button>
             </div>
           </CardContent>

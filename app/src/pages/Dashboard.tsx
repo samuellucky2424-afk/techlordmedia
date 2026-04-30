@@ -2015,45 +2015,47 @@ function Dashboard() {
           </div>
         )}
 
-        <button
-          title="Settings"
-          onClick={() => navigate('/settings')}
-          className="absolute right-6 top-6 z-20 rounded-full border border-white/5 bg-black/40 p-2.5 text-[#71717A] backdrop-blur-md transition-all hover:scale-110 hover:text-white"
-        >
-          <Settings className="h-5 w-5" />
-        </button>
+        {isStreaming && (
+          <div className="pointer-events-none absolute left-4 top-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/80 backdrop-blur-md">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500/70" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500" />
+            </span>
+            Live
+          </div>
+        )}
       </main>
 
-      <footer className="relative z-10 flex flex-col gap-2 border-t border-white/5 bg-[#0A0A0A] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
+      <footer className="relative z-10 flex flex-col gap-1.5 border-t border-white/5 bg-[#0A0A0A] px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={handleStart}
             disabled={isStreaming || isLoading}
-            className={`flex h-[34px] items-center gap-2 rounded-sm border px-3.5 transition-all ${
+            className={`flex h-7 items-center gap-1.5 rounded border px-2.5 transition-all ${
               isStreaming
                 ? 'border-[#133C29] bg-[#122A1F] text-[#22C55E] opacity-50'
                 : 'border-[#133C29] bg-[#122A1F] text-[#22C55E] hover:bg-[#153828]'
             }`}
           >
-            <Play className="h-3.5 w-3.5 fill-current" />
-            <span className="text-[13px] font-semibold tracking-wide">{isLoading ? 'STARTING' : 'Start'}</span>
+            <Play className="h-3 w-3 fill-current" />
+            <span className="text-[11px] font-semibold tracking-wide">{isLoading ? 'Starting' : 'Start'}</span>
           </button>
 
           <button
             onClick={() => void handleStop()}
             disabled={!isStreaming}
-            className="flex h-[34px] items-center gap-2 rounded-sm border border-[#2A2A2A] bg-[#1E1E1E] px-3.5 text-[#737373] transition-all hover:text-[#A3A3A3]"
+            className="flex h-7 items-center gap-1.5 rounded border border-[#2A2A2A] bg-[#1E1E1E] px-2.5 text-[#737373] transition-all hover:text-[#A3A3A3] disabled:opacity-50"
           >
-            <Square className="h-3.5 w-3.5 fill-current opacity-70" />
-            <span className="text-[13px] font-medium">Stop</span>
+            <Square className="h-3 w-3 fill-current opacity-70" />
+            <span className="text-[11px] font-medium">Stop</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex h-[34px] items-center gap-2 rounded-sm border border-[#2A2A2A] bg-[#1E1E1E] px-3.5 text-[#737373] transition-all hover:text-[#A3A3A3]"
+            className="flex h-7 items-center gap-1.5 rounded border border-[#2A2A2A] bg-[#1E1E1E] px-2.5 text-[#737373] transition-all hover:text-[#A3A3A3]"
           >
-            <Upload className="h-3.5 w-3.5 opacity-80" />
-            <span className="text-[13px] font-medium">{referenceImage ? 'Change Image' : 'Upload Image'}</span>
+            <Upload className="h-3 w-3 opacity-80" />
+            <span className="text-[11px] font-medium">{referenceImage ? 'Change' : 'Upload'}</span>
           </button>
 
           <select
@@ -2061,11 +2063,11 @@ function Dashboard() {
             onChange={(event) => handleModeChange(event.target.value)}
             title="Select performance mode"
             aria-label="Select performance mode"
-            className="h-[30px] min-w-[128px] rounded-sm border border-[#2A2A2A] bg-[#1A1A1A] px-2 text-[11px] font-medium text-[#D4D4D8] transition-colors focus:border-[#3A3A3A] focus:outline-none"
+            className="h-7 rounded border border-[#2A2A2A] bg-[#1A1A1A] px-1.5 text-[11px] font-medium text-[#D4D4D8] transition-colors focus:border-[#3A3A3A] focus:outline-none"
           >
-            <option value="fast">Fast Mode</option>
-            <option value="balanced">Balanced Mode</option>
-            <option value="hd">HD Mode</option>
+            <option value="fast">Fast</option>
+            <option value="balanced">Balanced</option>
+            <option value="hd">HD</option>
           </select>
 
           {cameraDevices.length >= 1 && (
@@ -2073,7 +2075,7 @@ function Dashboard() {
               value={selectedCameraId}
               onChange={(event) => handleCameraChange(event.target.value)}
               title="Select camera"
-              className="h-[34px] rounded-sm border border-[#2A2A2A] bg-[#1E1E1E] px-2 text-[12px] text-[#A3A3A3] transition-colors focus:border-[#3A3A3A] focus:outline-none"
+              className="hidden h-7 max-w-[160px] rounded border border-[#2A2A2A] bg-[#1E1E1E] px-1.5 text-[11px] text-[#A3A3A3] transition-colors focus:border-[#3A3A3A] focus:outline-none md:inline-flex"
             >
               {cameraDevices.map((device, index) => (
                 <option key={device.deviceId} value={device.deviceId}>
@@ -2084,31 +2086,40 @@ function Dashboard() {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <div className="flex items-center gap-3 rounded-xl border border-[#222222] bg-[#111111] px-3 py-2">
-            <div className="flex flex-col gap-[2px]">
-              <span className="text-[8px] font-bold uppercase tracking-widest text-[#A1A1AA]">Credits</span>
-              <div className="flex items-center gap-1.5">
-                <Coins className="h-3.5 w-3.5 text-blue-400" />
-                <span className="text-xs font-bold text-[#22C55E]">{Math.round(credits).toLocaleString()}</span>
+        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+          <div className="flex h-9 items-center gap-2 rounded-md border border-[#222222] bg-[#111111] px-2">
+            <div className="flex flex-col leading-tight">
+              <span className="text-[8px] font-bold uppercase tracking-[0.18em] text-[#A1A1AA]">Credits</span>
+              <div className="flex items-center gap-1">
+                <Coins className="h-3 w-3 text-blue-400" />
+                <span className="text-[11px] font-bold text-[#22C55E] tabular-nums">{Math.round(credits).toLocaleString()}</span>
               </div>
             </div>
             <button
               onClick={() => navigate('/subscription')}
-              className="ml-1 flex h-[28px] items-center gap-1 rounded-sm bg-[#FFFFFF] px-2.5 text-[11px] font-bold text-[#000000] shadow-sm transition-colors hover:bg-[#E5E5E5]"
+              className="flex h-6 items-center gap-1 rounded-sm bg-white px-2 text-[10px] font-bold text-black shadow-sm transition-colors hover:bg-[#E5E5E5]"
             >
-              <Plus className="h-3.5 w-3.5 stroke-[3]" />
-              Buy Credits
+              <Plus className="h-3 w-3 stroke-[3]" />
+              Buy
+            </button>
+            <button
+              title="Settings"
+              aria-label="Settings"
+              onClick={() => navigate('/settings')}
+              className="flex h-6 w-6 items-center justify-center rounded-sm border border-[#2A2A2A] bg-[#1A1A1A] text-[#A1A1AA] transition-colors hover:border-[#3A3A3A] hover:text-white"
+            >
+              <Settings className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          <div className="flex min-w-[140px] items-center gap-3 rounded-xl border border-[#0F284B] bg-[#0E1524] px-3 py-2">
-            <Clock className="h-4 w-4 stroke-[2.5] text-[#3B82F6]" />
-            <div className="flex flex-col gap-[2px]">
-              <span className="text-[8px] font-bold uppercase tracking-widest text-[#60A5FA]">Remaining</span>
-              <span className="text-xs font-bold text-[#E5E5E5]">{formatTime(getRemainingSeconds())}</span>
-              <span className="text-[10px] text-[#6B7280]">{streamMetrics.limitation === 'none' ? 'No throttling' : `${streamMetrics.limitation} limited`}</span>
-              <span className="text-[10px] text-[#6B7280]">{uiStatus}</span>
+          <div className="flex h-9 min-w-[120px] items-center gap-2 rounded-md border border-[#0F284B] bg-[#0E1524] px-2">
+            <Clock className="h-3.5 w-3.5 stroke-[2.5] text-[#3B82F6]" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-[8px] font-bold uppercase tracking-[0.18em] text-[#60A5FA]">Remaining</span>
+              <span className="text-[11px] font-bold text-[#E5E5E5] tabular-nums">{formatTime(getRemainingSeconds())}</span>
+              <span className="text-[9px] text-[#6B7280]">
+                {(streamMetrics.limitation === 'none' ? 'No throttling' : `${streamMetrics.limitation} limited`)} · {uiStatus}
+              </span>
             </div>
           </div>
         </div>

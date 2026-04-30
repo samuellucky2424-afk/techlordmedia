@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { ROUTES } from '@/lib/routes';
+import { BrandIcon } from '@/components/BrandIcon';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,7 +16,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { LogOut, Search, Plus, Trash2, Pencil, Ban, ShieldCheck, Coins, Users, Activity, DollarSign } from 'lucide-react';
+import { LogOut, Search, Plus, Trash2, Pencil, Ban, Coins, Users, Activity, DollarSign } from 'lucide-react';
 
 interface AdminUser {
   id: string;
@@ -254,125 +254,179 @@ export default function AdminDashboard() {
   };
 
   const statCards = useMemo(() => ([
-    { label: 'Total Users',     value: stats?.total_users ?? '—',     icon: Users },
-    { label: 'Blocked',         value: stats?.blocked_users ?? '—',   icon: Ban },
-    { label: 'Total Credits',   value: stats?.total_credits ?? '—',   icon: Coins },
-    { label: 'Revenue (NGN)',   value: stats ? Number(stats.total_revenue).toLocaleString() : '—', icon: DollarSign },
-    { label: 'Active Sessions', value: stats?.active_sessions ?? '—', icon: Activity },
+    { label: 'Total Users', value: stats?.total_users ?? '—', meta: 'Registered accounts', icon: Users, tone: 'text-slate-500' },
+    { label: 'Blocked', value: stats?.blocked_users ?? '—', meta: 'Restricted accounts', icon: Ban, tone: 'text-rose-600' },
+    { label: 'Total Credits', value: stats?.total_credits ?? '—', meta: 'Wallet balance', icon: Coins, tone: 'text-slate-500' },
+    { label: 'Revenue (NGN)', value: stats ? Number(stats.total_revenue).toLocaleString() : '—', meta: 'Purchase value', icon: DollarSign, tone: 'text-emerald-600' },
+    { label: 'Active Sessions', value: stats?.active_sessions ?? '—', meta: 'Current activity', icon: Activity, tone: 'text-slate-500' },
   ]), [stats]);
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white p-6 lg:p-10">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5" />
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-12 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-950">
+              <BrandIcon className="h-5 w-5" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">Surevideotool Admin</h1>
-              <p className="text-sm text-zinc-400">Signed in as {user?.email}</p>
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="text-sm font-semibold tracking-tight text-slate-900">Surevideotool</span>
+              <span className="hidden text-[11px] uppercase tracking-[0.16em] text-slate-400 sm:inline">Admin Console</span>
             </div>
           </div>
-          <Button variant="outline" onClick={handleSignOut}>
-            <LogOut className="w-4 h-4 mr-2" /> Sign out
-          </Button>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Online
+            </span>
+            <span className="hidden text-slate-600 md:inline">{user?.email}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+              className="h-7 rounded-md border-slate-300 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-100"
+            >
+              <LogOut className="mr-1 h-3.5 w-3.5" /> Sign out
+            </Button>
+          </div>
         </div>
+      </header>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
+        <section className="flex flex-col gap-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Overview</div>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-950">Operations Dashboard</h1>
+            <p className="text-xs text-slate-500">Signed in as <span className="font-medium text-slate-700">{user?.email}</span> · RLS protected</p>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 md:grid-cols-3 xl:grid-cols-5">
           {statCards.map((s) => {
             const Icon = s.icon;
             return (
-              <Card key={s.label} className="bg-[#111114] border-zinc-800">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-zinc-400">{s.label}</p>
-                      <p className="text-xl font-semibold mt-1">{s.value}</p>
-                    </div>
-                    <Icon className="w-5 h-5 text-zinc-500" />
-                  </div>
-                </CardContent>
-              </Card>
+              <div key={s.label} className="bg-white px-3.5 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{s.label}</p>
+                  <Icon className={`h-3.5 w-3.5 ${s.tone}`} />
+                </div>
+                <p className="mt-1.5 text-xl font-semibold leading-none tracking-tight text-slate-950 tabular-nums">{s.value}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{s.meta}</p>
+              </div>
             );
           })}
-        </div>
+        </section>
 
-        {/* Tabs */}
-        <Tabs defaultValue="users">
-          <TabsList className="bg-[#111114] border border-zinc-800">
-            <TabsTrigger value="users">Users</TabsTrigger>
-            <TabsTrigger value="pricing">Pricing</TabsTrigger>
-            <TabsTrigger value="audit">Audit Log</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="users" className="gap-3">
+          <div className="border-b border-slate-200">
+            <TabsList className="h-9 gap-0 rounded-none border-0 bg-transparent p-0 shadow-none">
+              <TabsTrigger
+                value="users"
+                className="rounded-none border-b-2 border-transparent px-3 py-2 text-sm text-slate-600 data-[state=active]:border-[#0c56d7] data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
+              >
+                Users
+              </TabsTrigger>
+              <TabsTrigger
+                value="pricing"
+                className="rounded-none border-b-2 border-transparent px-3 py-2 text-sm text-slate-600 data-[state=active]:border-[#0c56d7] data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
+              >
+                Pricing
+              </TabsTrigger>
+              <TabsTrigger
+                value="audit"
+                className="rounded-none border-b-2 border-transparent px-3 py-2 text-sm text-slate-600 data-[state=active]:border-[#0c56d7] data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
+              >
+                Audit Log
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          {/* USERS */}
-          <TabsContent value="users" className="mt-4">
-            <Card className="bg-[#111114] border-zinc-800">
-              <CardHeader>
-                <CardTitle>Users</CardTitle>
-                <CardDescription>Edit credits, block or unblock accounts.</CardDescription>
+          <TabsContent value="users">
+            <Card className="gap-0 rounded-md border-slate-200 bg-white shadow-none">
+              <CardHeader className="border-b border-slate-200 px-4 py-3">
+                <CardTitle className="text-sm font-semibold text-slate-900">Users</CardTitle>
+                <CardDescription className="text-xs text-slate-500">Edit credit balances, apply restrictions, and search the user base.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+              <CardContent className="p-4">
+                <form onSubmit={handleSearch} className="mb-3 flex flex-col gap-2 md:flex-row md:items-center">
                   <div className="relative flex-1">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                     <Input
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       placeholder="Search by email"
-                      className="pl-9"
+                      className="h-8 rounded-md border-slate-300 bg-white pl-8 text-xs text-slate-900 placeholder:text-slate-400"
                     />
                   </div>
-                  <Button type="submit">Search</Button>
-                  <Button type="button" variant="outline" onClick={() => { setSearch(''); void loadUsers(''); }}>
+                  <Button type="submit" className="h-8 rounded-md bg-[#0c56d7] px-3 text-xs text-white hover:bg-[#0948b5]">Search</Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 rounded-md border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-100"
+                    onClick={() => { setSearch(''); void loadUsers(''); }}
+                  >
                     Reset
                   </Button>
                 </form>
 
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>{loadingUsers ? 'Loading accounts…' : `Showing ${users.length} account${users.length === 1 ? '' : 's'}`}</span>
+                  <span>Search via admin RPC</span>
+                </div>
+
+                <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
                   <Table>
                     <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead>Email</TableHead>
-                        <TableHead className="text-right">Credits</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Joined</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Email</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Credits</TableHead>
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Status</TableHead>
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Joined</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loadingUsers && (
-                        <TableRow><TableCell colSpan={5} className="text-center text-zinc-500">Loading…</TableCell></TableRow>
+                        <TableRow className="border-slate-100"><TableCell colSpan={5} className="py-5 text-center text-xs text-slate-500">Loading accounts…</TableCell></TableRow>
                       )}
                       {!loadingUsers && users.length === 0 && (
-                        <TableRow><TableCell colSpan={5} className="text-center text-zinc-500">No users</TableCell></TableRow>
+                        <TableRow className="border-slate-100"><TableCell colSpan={5} className="py-5 text-center text-xs text-slate-500">No users found.</TableCell></TableRow>
                       )}
                       {users.map((u) => (
-                        <TableRow key={u.id}>
-                          <TableCell className="font-medium">{u.email}</TableCell>
-                          <TableCell className="text-right">{u.credits}</TableCell>
-                          <TableCell>
-                            {u.is_blocked
-                              ? <Badge variant="destructive">Blocked</Badge>
-                              : <Badge variant="secondary">Active</Badge>}
+                        <TableRow key={u.id} className="border-slate-100 hover:bg-slate-50/60">
+                          <TableCell className="py-2.5 text-xs font-medium text-slate-900">{u.email}</TableCell>
+                          <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">{u.credits}</TableCell>
+                          <TableCell className="py-2.5">
+                            {u.is_blocked ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600">
+                                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> Blocked
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
+                              </span>
+                            )}
                           </TableCell>
-                          <TableCell className="text-zinc-400 text-xs">
+                          <TableCell className="py-2.5 text-[11px] text-slate-500">
                             {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
                           </TableCell>
-                          <TableCell className="text-right">
-                            <div className="inline-flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => openCredits(u)}>
-                                <Coins className="w-4 h-4 mr-1" /> Credits
+                          <TableCell className="py-2.5 text-right">
+                            <div className="inline-flex flex-wrap justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 rounded-md border-slate-300 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-100"
+                                onClick={() => openCredits(u)}
+                              >
+                                <Coins className="mr-1 h-3.5 w-3.5" /> Credits
                               </Button>
                               <Button
                                 size="sm"
-                                variant={u.is_blocked ? 'secondary' : 'destructive'}
+                                className={u.is_blocked
+                                  ? 'h-7 rounded-md bg-slate-900 px-2 text-[11px] text-white hover:bg-slate-800'
+                                  : 'h-7 rounded-md bg-rose-600 px-2 text-[11px] text-white hover:bg-rose-700'}
                                 onClick={() => quickToggleBlock(u)}
                               >
-                                <Ban className="w-4 h-4 mr-1" />
+                                <Ban className="mr-1 h-3.5 w-3.5" />
                                 {u.is_blocked ? 'Unblock' : 'Block'}
                               </Button>
                             </div>
@@ -386,46 +440,61 @@ export default function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          {/* PRICING */}
-          <TabsContent value="pricing" className="mt-4">
-            <Card className="bg-[#111114] border-zinc-800">
-              <CardHeader className="flex flex-row items-center justify-between">
+          <TabsContent value="pricing">
+            <Card className="gap-0 rounded-md border-slate-200 bg-white shadow-none">
+              <CardHeader className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <CardTitle>Pricing Plans</CardTitle>
-                  <CardDescription>Edit credits and price for each plan.</CardDescription>
+                  <CardTitle className="text-sm font-semibold text-slate-900">Pricing Plans</CardTitle>
+                  <CardDescription className="text-xs text-slate-500">Maintain the plans shown to customers.</CardDescription>
                 </div>
-                <Button onClick={openPlanCreate}><Plus className="w-4 h-4 mr-1" /> New Plan</Button>
+                <Button onClick={openPlanCreate} className="h-8 rounded-md bg-[#0c56d7] px-3 text-xs text-white hover:bg-[#0948b5]">
+                  <Plus className="mr-1 h-3.5 w-3.5" /> New Plan
+                </Button>
               </CardHeader>
-              <CardContent>
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <CardContent className="p-4">
+                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>{loadingPlans ? 'Loading plans…' : `${plans.length} plan${plans.length === 1 ? '' : 's'} configured`}</span>
+                  <span>Audited</span>
+                </div>
+
+                <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
                   <Table>
                     <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead>Name</TableHead>
-                        <TableHead className="text-right">Credits</TableHead>
-                        <TableHead className="text-right">Price (USD)</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Name</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Credits</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Price (USD)</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loadingPlans && (
-                        <TableRow><TableCell colSpan={4} className="text-center text-zinc-500">Loading…</TableCell></TableRow>
+                        <TableRow className="border-slate-100"><TableCell colSpan={4} className="py-5 text-center text-xs text-slate-500">Loading plans…</TableCell></TableRow>
                       )}
                       {!loadingPlans && plans.length === 0 && (
-                        <TableRow><TableCell colSpan={4} className="text-center text-zinc-500">No plans</TableCell></TableRow>
+                        <TableRow className="border-slate-100"><TableCell colSpan={4} className="py-5 text-center text-xs text-slate-500">No plans configured.</TableCell></TableRow>
                       )}
                       {plans.map((p) => (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-medium">{p.name}</TableCell>
-                          <TableCell className="text-right">{p.credits}</TableCell>
-                          <TableCell className="text-right">${Number(p.usd_price).toFixed(2)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="inline-flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => openPlanEdit(p)}>
-                                <Pencil className="w-4 h-4 mr-1" /> Edit
+                        <TableRow key={p.id} className="border-slate-100 hover:bg-slate-50/60">
+                          <TableCell className="py-2.5 text-xs font-medium text-slate-900">{p.name}</TableCell>
+                          <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">{p.credits}</TableCell>
+                          <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">${Number(p.usd_price).toFixed(2)}</TableCell>
+                          <TableCell className="py-2.5 text-right">
+                            <div className="inline-flex flex-wrap justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 rounded-md border-slate-300 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-100"
+                                onClick={() => openPlanEdit(p)}
+                              >
+                                <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                               </Button>
-                              <Button size="sm" variant="destructive" onClick={() => deletePlan(p)}>
-                                <Trash2 className="w-4 h-4 mr-1" /> Delete
+                              <Button
+                                size="sm"
+                                className="h-7 rounded-md bg-rose-600 px-2 text-[11px] text-white hover:bg-rose-700"
+                                onClick={() => deletePlan(p)}
+                              >
+                                <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
                               </Button>
                             </div>
                           </TableCell>
@@ -438,38 +507,42 @@ export default function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          {/* AUDIT */}
-          <TabsContent value="audit" className="mt-4">
-            <Card className="bg-[#111114] border-zinc-800">
-              <CardHeader>
-                <CardTitle>Audit Log</CardTitle>
-                <CardDescription>Recent admin actions.</CardDescription>
+          <TabsContent value="audit">
+            <Card className="gap-0 rounded-md border-slate-200 bg-white shadow-none">
+              <CardHeader className="border-b border-slate-200 px-4 py-3">
+                <CardTitle className="text-sm font-semibold text-slate-900">Audit Log</CardTitle>
+                <CardDescription className="text-xs text-slate-500">Recent administrative actions captured for traceability.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <CardContent className="p-4">
+                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>{audit.length} recent event{audit.length === 1 ? '' : 's'}</span>
+                  <span>Latest 100</span>
+                </div>
+
+                <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
                   <Table>
                     <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead>When</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Target</TableHead>
-                        <TableHead>Payload</TableHead>
+                      <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">When</TableHead>
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Action</TableHead>
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Target</TableHead>
+                        <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Payload</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {audit.length === 0 && (
-                        <TableRow><TableCell colSpan={4} className="text-center text-zinc-500">No entries</TableCell></TableRow>
+                        <TableRow className="border-slate-100"><TableCell colSpan={4} className="py-5 text-center text-xs text-slate-500">No audit entries yet.</TableCell></TableRow>
                       )}
                       {audit.map((a) => (
-                        <TableRow key={a.id}>
-                          <TableCell className="text-xs text-zinc-400">
-                            {new Date(a.created_at).toLocaleString()}
+                        <TableRow key={a.id} className="border-slate-100 hover:bg-slate-50/60">
+                          <TableCell className="py-2.5 text-[11px] text-slate-500">{new Date(a.created_at).toLocaleString()}</TableCell>
+                          <TableCell className="py-2.5">
+                            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-700">{a.action}</span>
                           </TableCell>
-                          <TableCell><Badge variant="secondary">{a.action}</Badge></TableCell>
-                          <TableCell className="text-xs">
+                          <TableCell className="py-2.5 font-mono text-[11px] text-slate-600">
                             {a.target_table}:{a.target_id?.slice(0, 8)}
                           </TableCell>
-                          <TableCell className="text-xs text-zinc-400 max-w-md truncate">
+                          <TableCell className="py-2.5 max-w-[320px] truncate font-mono text-[11px] text-slate-500">
                             {a.payload ? JSON.stringify(a.payload) : ''}
                           </TableCell>
                         </TableRow>
@@ -485,75 +558,78 @@ export default function AdminDashboard() {
 
       {/* Edit credits dialog */}
       <Dialog open={creditsOpen} onOpenChange={setCreditsOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-md border-slate-200 bg-white p-5 text-slate-900 shadow-lg sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit credits</DialogTitle>
-            <DialogDescription>{creditsTarget?.email}</DialogDescription>
+            <DialogTitle className="text-sm font-semibold">Edit credits</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">{creditsTarget?.email}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>New credit balance</Label>
+              <Label className="text-xs font-medium text-slate-700">New credit balance</Label>
               <Input
                 type="number" min={0} step={1}
                 value={creditsValue}
                 onChange={(e) => setCreditsValue(e.target.value)}
+                className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs"
               />
             </div>
             <div>
-              <Label>Reason (optional)</Label>
-              <Input value={creditsReason} onChange={(e) => setCreditsReason(e.target.value)} />
+              <Label className="text-xs font-medium text-slate-700">Reason (optional)</Label>
+              <Input className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs" value={creditsReason} onChange={(e) => setCreditsReason(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreditsOpen(false)}>Cancel</Button>
-            <Button onClick={submitCredits}>Save</Button>
+            <Button variant="outline" className="h-8 rounded-md border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-100" onClick={() => setCreditsOpen(false)}>Cancel</Button>
+            <Button className="h-8 rounded-md bg-[#0c56d7] px-3 text-xs text-white hover:bg-[#0948b5]" onClick={submitCredits}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Block dialog */}
       <Dialog open={blockOpen} onOpenChange={setBlockOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-md border-slate-200 bg-white p-5 text-slate-900 shadow-lg sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Block user</DialogTitle>
-            <DialogDescription>{blockTarget?.email}</DialogDescription>
+            <DialogTitle className="text-sm font-semibold">Block user</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">{blockTarget?.email}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <Label>Reason</Label>
-            <Input value={blockReason} onChange={(e) => setBlockReason(e.target.value)} placeholder="e.g. Abuse" />
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-slate-700">Reason</Label>
+            <Input className="h-8 rounded-md border-slate-300 bg-white text-xs" value={blockReason} onChange={(e) => setBlockReason(e.target.value)} placeholder="e.g. Abuse" />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBlockOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => submitBlock(true)}>Block</Button>
+            <Button variant="outline" className="h-8 rounded-md border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-100" onClick={() => setBlockOpen(false)}>Cancel</Button>
+            <Button className="h-8 rounded-md bg-rose-600 px-3 text-xs text-white hover:bg-rose-700" onClick={() => submitBlock(true)}>Block</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Plan dialog */}
       <Dialog open={planOpen} onOpenChange={setPlanOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-md border-slate-200 bg-white p-5 text-slate-900 shadow-lg sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingPlan ? 'Edit plan' : 'New plan'}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{editingPlan ? 'Edit plan' : 'New plan'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Name</Label>
-              <Input value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} />
+              <Label className="text-xs font-medium text-slate-700">Name</Label>
+              <Input className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} />
             </div>
             <div>
-              <Label>Credits</Label>
+              <Label className="text-xs font-medium text-slate-700">Credits</Label>
               <Input type="number" min={0} value={planForm.credits}
+                className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs"
                 onChange={(e) => setPlanForm({ ...planForm, credits: e.target.value })} />
             </div>
             <div>
-              <Label>Price (USD)</Label>
+              <Label className="text-xs font-medium text-slate-700">Price (USD)</Label>
               <Input type="number" min={0} step="0.01" value={planForm.usd_price}
+                className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs"
                 onChange={(e) => setPlanForm({ ...planForm, usd_price: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPlanOpen(false)}>Cancel</Button>
-            <Button onClick={submitPlan}>{editingPlan ? 'Save' : 'Create'}</Button>
+            <Button variant="outline" className="h-8 rounded-md border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-100" onClick={() => setPlanOpen(false)}>Cancel</Button>
+            <Button className="h-8 rounded-md bg-[#0c56d7] px-3 text-xs text-white hover:bg-[#0948b5]" onClick={submitPlan}>{editingPlan ? 'Save' : 'Create'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
