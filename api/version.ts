@@ -6,7 +6,7 @@
  */
 
 const GITHUB_OWNER = 'samuellucky2424-afk';
-const GITHUB_REPO = 'morphly';
+const GITHUB_REPO = 'Surevideotool-project';
 const GITHUB_REPOSITORY_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const GITHUB_API_LATEST = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
@@ -19,6 +19,13 @@ async function fetchLatestVersion() {
     },
     cache: 'no-store',
   });
+
+  // GitHub returns 404 when the repo has no published releases yet. Treat that
+  // as "no update available" rather than a hard error so the desktop updater
+  // doesn't surface a scary 500 dialog on every launch.
+  if (response.status === 404) {
+    return null;
+  }
 
   if (!response.ok) {
     throw new Error(`GitHub API responded with HTTP ${response.status}`);
@@ -52,8 +59,8 @@ function normalizePackageType(value) {
 function buildAssetName(version, packageType) {
   const safeVersion = version.trim();
   return packageType === 'portable'
-    ? `Morphly-${safeVersion}.exe`
-    : `Morphly-Setup-${safeVersion}.exe`;
+    ? `Surevideotool-${safeVersion}.exe`
+    : `Surevideotool-Setup-${safeVersion}.exe`;
 }
 
 function buildReleasePageUrl(version) {
@@ -104,7 +111,28 @@ export default async function handler(req, res) {
 
   try {
     const packageType = getBuildType(req);
-    const { version, releaseNotes, uploadedAssets } = await fetchLatestVersion();
+    const latest = await fetchLatestVersion();
+
+    // No GitHub release published yet — echo the client's currentVersion back
+    // as latestVersion so the desktop updater treats the build as up-to-date
+    // instead of erroring on a missing version field.
+    if (latest === null) {
+      const clientVersion = (req?.query?.currentVersion ?? req?.query?.version ?? '0.0.0').toString().trim() || '0.0.0';
+      return res.status(200).json({
+        latestVersion: clientVersion,
+        downloadUrl: `${GITHUB_REPOSITORY_URL}/releases`,
+        packageType,
+        checksum: null,
+        releaseNotes: null,
+        releasePageUrl: `${GITHUB_REPOSITORY_URL}/releases`,
+        sourceLabel: 'GitHub Releases',
+        assetName: buildAssetName(clientVersion, packageType),
+        generatedAt: new Date().toISOString(),
+        _debug: { reason: 'no-releases-published' },
+      });
+    }
+
+    const { version, releaseNotes, uploadedAssets } = latest;
     const manifest = createVersionManifest({
       version,
       packageType,
