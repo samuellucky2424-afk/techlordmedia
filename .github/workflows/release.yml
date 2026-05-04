@@ -113,7 +113,7 @@ jobs:
         VITE_PAYMENTPOINT_ACCOUNT_NAME: ${{ vars.VITE_PAYMENTPOINT_ACCOUNT_NAME || secrets.VITE_PAYMENTPOINT_ACCOUNT_NAME || vars.PAYMENTPOINT_ACCOUNT_NAME || secrets.PAYMENTPOINT_ACCOUNT_NAME }}
         VITE_PAYMENTPOINT_ACCOUNT_NUMBER: ${{ vars.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || secrets.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || vars.PAYMENTPOINT_ACCOUNT_NUMBER || secrets.PAYMENTPOINT_ACCOUNT_NUMBER }}
         VITE_PAYMENTPOINT_BANK_NAME: ${{ vars.VITE_PAYMENTPOINT_BANK_NAME || secrets.VITE_PAYMENTPOINT_BANK_NAME || vars.PAYMENTPOINT_BANK_NAME || secrets.PAYMENTPOINT_BANK_NAME }}
-      run: npm run electron:release
+      run: npm run electron:build
 
     - name: Resolve release version
       id: release-version
@@ -178,3 +178,16 @@ jobs:
           $artifactPath = Join-Path $bundledCameraDir $artifact
           if (!(Test-Path $artifactPath)) { throw "Missing bundled camera artifact: $artifactPath" }
         }
+
+    - name: Publish GitHub release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.release-version.outputs.TAG_NAME }}
+        name: ${{ steps.release-version.outputs.TAG_NAME }}
+        generate_release_notes: true
+        fail_on_unmatched_files: true
+        files: |
+          app/release/*.exe
+          app/release/*.blockmap
+          app/release/latest*.yml
+          app/release/latest*.yaml
