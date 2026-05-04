@@ -137,12 +137,12 @@ jobs:
         if (!$blockmaps) { throw "Missing .blockmap files in $dir" }
 
         $installerCandidates = @(
-          (Join-Path $dir "Morphly-Setup-$version.exe"),
-          (Join-Path $dir "Morphly Setup $version.exe")
+          (Join-Path $dir "Surevideotool-Setup-$version.exe"),
+          (Join-Path $dir "Surevideotool Setup $version.exe")
         )
         $portableCandidates = @(
-          (Join-Path $dir "Morphly-$version.exe"),
-          (Join-Path $dir "Morphly $version.exe")
+          (Join-Path $dir "Surevideotool-$version.exe"),
+          (Join-Path $dir "Surevideotool $version.exe")
         )
 
         $exe1 = $installerCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1

@@ -1,7 +1,7 @@
 {
   "name": "surevideotool-desktop",
   "private": true,
-  "version": "2.0.9",
+  "version": "1.0.0",
   "description": "Surevideotool desktop app with bundled virtual camera install flow.",
   "author": "Surevideotool",
   "repository": {
