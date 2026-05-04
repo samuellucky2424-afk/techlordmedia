@@ -19,21 +19,21 @@ The release version comes from `app/package.json`. The Git tag and the app versi
 2. **Commit your changes**:
    ```bash
    git add .
-   git commit -m "Release version 1.0.0"
+   git commit -m "Release version 1.0.1"
    ```
 
 3. **Create and push a matching version tag**:
    ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
+   git tag v1.0.1
+   git push origin v1.0.1
    ```
 
 4. **GitHub Actions will automatically**:
    - Build the Electron app
    - Create or update the GitHub release for the version tag
    - Upload two EXE files:
-     - `Surevideotool Setup 1.0.0.exe` (NSIS installer)
-     - `Surevideotool 1.0.0.exe` (Portable version)
+     - `Surevideotool Setup 1.0.1.exe` (NSIS installer)
+     - `Surevideotool 1.0.1.exe` (Portable version)
 
 ### Manual Trigger
 
@@ -55,4 +55,4 @@ The workflow creates two types of Windows executables:
 - Use semantic versioning: `MAJOR.MINOR.PATCH`
 - Tag format: `v1.0.0`
 - Example tags: `v1.0.0`, `v1.0.1`, `v1.1.0`, `v2.0.0`
-- Example: if `app/package.json` is `1.0.0`, the tag must be `v1.0.0`
+- Example: if `app/package.json` is `1.0.1`, the tag must be `v1.0.1`
