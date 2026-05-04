@@ -190,4 +190,3 @@ jobs:
           app/release/*.exe
           app/release/*.blockmap
           app/release/latest*.yml
-          app/release/latest*.yaml
