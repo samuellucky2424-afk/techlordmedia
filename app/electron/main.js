@@ -13,6 +13,7 @@ import { createDesktopUpdater } from './updater.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDevelopment = !app.isPackaged && process.env.NODE_ENV !== 'production';
+const APP_USER_MODEL_ID = 'com.surevideotool.app';
 const RELEASES_URL = 'https://github.com/samuellucky2424-afk/Surevideotool-project/releases';
 const SUREVIDEOTOOL_CAM_WINDOW_NAME = 'Surevideotool Cam';
 const SUREVIDEOTOOL_CAM_WINDOW_WIDTH = 640;
@@ -43,6 +44,10 @@ const VIRTUAL_CAM_LOG_FILE_NAME = 'virtual-camera.log';
 const VIRTUAL_CAM_STALE_RENDERER_FRAME_MS = 2000;
 
 app.disableHardwareAcceleration();
+app.setName('Surevideotool');
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -1064,13 +1069,14 @@ function createWindow() {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'icon.ico')
     : path.join(__dirname, '../build/icon.ico');
+  const appIcon = nativeImage.createFromPath(iconPath);
 
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 720,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
-    icon: iconPath,
+    icon: appIcon.isEmpty() ? iconPath : appIcon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -1078,6 +1084,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     }
   });
+
+  if (process.platform === 'win32' && !appIcon.isEmpty() && typeof mainWindow.setIcon === 'function') {
+    mainWindow.setIcon(appIcon);
+  }
 
   Menu.setApplicationMenu(null);
   mainWindow.setMenuBarVisibility(false);

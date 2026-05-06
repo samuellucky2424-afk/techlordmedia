@@ -1,7 +1,7 @@
 {
   "name": "surevideotool-desktop",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Surevideotool desktop app with bundled virtual camera install flow.",
   "author": "Surevideotool",
   "repository": {
@@ -66,6 +66,9 @@
     "nsis": {
       "artifactName": "Surevideotool Setup ${version}.${ext}",
       "include": "build/installer.nsh",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "oneClick": false,
       "perMachine": true,
       "allowElevation": true,
