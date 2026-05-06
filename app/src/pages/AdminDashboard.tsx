@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { ROUTES } from '@/lib/routes';
+import { formatNaira, resolveStoredPlanPriceNGN } from '@/lib/pricing';
 import { BrandIcon } from '@/components/BrandIcon';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { LogOut, Search, Plus, Trash2, Pencil, Ban, Coins, Users, Activity, DollarSign } from 'lucide-react';
+import { LogOut, Search, Plus, Trash2, Pencil, Ban, Coins, Users, Activity, Banknote } from 'lucide-react';
 
 interface AdminUser {
   id: string;
@@ -31,6 +32,7 @@ interface Plan {
   id: string;
   name: string;
   credits: number;
+  // The live database/RPC still uses the legacy usd_price name, but the value is now entered and shown as NGN.
   usd_price: number;
   created_at?: string;
 }
@@ -79,8 +81,8 @@ export default function AdminDashboard() {
   // Plan editor
   const [planOpen, setPlanOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
-  const [planForm, setPlanForm] = useState<{ name: string; credits: string; usd_price: string }>({
-    name: '', credits: '', usd_price: '',
+  const [planForm, setPlanForm] = useState<{ name: string; credits: string; price_ngn: string }>({
+    name: '', credits: '', price_ngn: '',
   });
 
   const loadStats = useCallback(async () => {
@@ -110,7 +112,7 @@ export default function AdminDashboard() {
     const { data, error } = await supabase
       .from('plans')
       .select('*')
-      .order('usd_price', { ascending: true });
+      .order('credits', { ascending: true });
     setLoadingPlans(false);
     if (error) {
       toast.error('Plans error: ' + error.message);
@@ -214,24 +216,24 @@ export default function AdminDashboard() {
   // ---- Plans ----
   const openPlanCreate = () => {
     setEditingPlan(null);
-    setPlanForm({ name: '', credits: '', usd_price: '' });
+    setPlanForm({ name: '', credits: '', price_ngn: '' });
     setPlanOpen(true);
   };
   const openPlanEdit = (p: Plan) => {
     setEditingPlan(p);
-    setPlanForm({ name: p.name, credits: String(p.credits), usd_price: String(p.usd_price) });
+    setPlanForm({ name: p.name, credits: String(p.credits), price_ngn: String(resolveStoredPlanPriceNGN(p.usd_price)) });
     setPlanOpen(true);
   };
   const submitPlan = async () => {
     const credits = Math.max(0, Math.floor(Number(planForm.credits) || 0));
-    const price = Math.max(0, Number(planForm.usd_price) || 0);
+    const priceNGN = Math.max(0, Number(planForm.price_ngn) || 0);
     if (!planForm.name.trim()) { toast.error('Name required'); return; }
 
     const { error } = await supabase.rpc('admin_upsert_plan', {
       p_id: editingPlan?.id ?? null,
       p_name: planForm.name.trim(),
       p_credits: credits,
-      p_usd_price: price,
+      p_usd_price: priceNGN,
     });
     if (error) { toast.error('Failed: ' + error.message); return; }
     toast.success(editingPlan ? 'Plan updated' : 'Plan created');
@@ -257,7 +259,7 @@ export default function AdminDashboard() {
     { label: 'Total Users', value: stats?.total_users ?? '—', meta: 'Registered accounts', icon: Users, tone: 'text-slate-500' },
     { label: 'Blocked', value: stats?.blocked_users ?? '—', meta: 'Restricted accounts', icon: Ban, tone: 'text-rose-600' },
     { label: 'Total Credits', value: stats?.total_credits ?? '—', meta: 'Wallet balance', icon: Coins, tone: 'text-slate-500' },
-    { label: 'Revenue (NGN)', value: stats ? Number(stats.total_revenue).toLocaleString() : '—', meta: 'Purchase value', icon: DollarSign, tone: 'text-emerald-600' },
+    { label: 'Revenue (NGN)', value: stats ? Number(stats.total_revenue).toLocaleString() : '—', meta: 'Purchase value', icon: Banknote, tone: 'text-emerald-600' },
     { label: 'Active Sessions', value: stats?.active_sessions ?? '—', meta: 'Current activity', icon: Activity, tone: 'text-slate-500' },
   ]), [stats]);
 
@@ -463,7 +465,7 @@ export default function AdminDashboard() {
                       <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
                         <TableHead className="h-9 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Name</TableHead>
                         <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Credits</TableHead>
-                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Price (USD)</TableHead>
+                        <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Price (NGN)</TableHead>
                         <TableHead className="h-9 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -478,7 +480,7 @@ export default function AdminDashboard() {
                         <TableRow key={p.id} className="border-slate-100 hover:bg-slate-50/60">
                           <TableCell className="py-2.5 text-xs font-medium text-slate-900">{p.name}</TableCell>
                           <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">{p.credits}</TableCell>
-                          <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">${Number(p.usd_price).toFixed(2)}</TableCell>
+                          <TableCell className="py-2.5 text-right text-xs font-medium tabular-nums text-slate-700">{formatNaira(resolveStoredPlanPriceNGN(p.usd_price))}</TableCell>
                           <TableCell className="py-2.5 text-right">
                             <div className="inline-flex flex-wrap justify-end gap-1.5">
                               <Button
@@ -621,10 +623,10 @@ export default function AdminDashboard() {
                 onChange={(e) => setPlanForm({ ...planForm, credits: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs font-medium text-slate-700">Price (USD)</Label>
-              <Input type="number" min={0} step="0.01" value={planForm.usd_price}
+              <Label className="text-xs font-medium text-slate-700">Price (NGN)</Label>
+              <Input type="number" min={0} step="1" value={planForm.price_ngn}
                 className="mt-1.5 h-8 rounded-md border-slate-300 bg-white text-xs"
-                onChange={(e) => setPlanForm({ ...planForm, usd_price: e.target.value })} />
+                onChange={(e) => setPlanForm({ ...planForm, price_ngn: e.target.value })} />
             </div>
           </div>
           <DialogFooter>

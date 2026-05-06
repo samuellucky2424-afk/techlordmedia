@@ -8,10 +8,22 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api-client';
 import { CREDITS_PER_SECOND } from '@/lib/billing';
+import { formatNaira, resolveStoredPlanPriceNGN } from '@/lib/pricing';
+import { supabase } from '@/lib/supabase';
 
 type CreditPlan = {
+  id: string;
+  name: string;
   credits: number;
   priceNGN: number;
+};
+
+type SupabasePlan = {
+  id: string;
+  name: string | null;
+  credits: number | string | null;
+  usd_price: number | string | null;
+  created_at?: string | null;
 };
 
 type PaymentPointBankAccount = {
@@ -143,12 +155,21 @@ function buildPaymentInstructions({
   return lines.join('\n');
 }
 
-const CREDIT_PLANS = [
-  { credits: 500, priceNGN: 11500 },
-  { credits: 1000, priceNGN: 23000 },
-  { credits: 2000, priceNGN: 46000 },
-  { credits: 5000, priceNGN: 115000 },
-];
+function normalizePlan(plan: SupabasePlan): CreditPlan | null {
+  const credits = Math.max(0, Math.floor(Number(plan.credits) || 0));
+  const priceNGN = resolveStoredPlanPriceNGN(plan.usd_price);
+
+  if (!plan.id || credits <= 0 || priceNGN <= 0) {
+    return null;
+  }
+
+  return {
+    id: plan.id,
+    name: plan.name?.trim() || `${credits.toLocaleString()} Credits`,
+    credits,
+    priceNGN,
+  };
+}
 
 function formatTime(credits: number): string {
   const seconds = credits / CREDITS_PER_SECOND;
@@ -165,6 +186,7 @@ function formatTime(credits: number): string {
 function Subscription() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [creditPlans, setCreditPlans] = useState<CreditPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<CreditPlan | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -172,10 +194,8 @@ function Subscription() {
   const [virtualAccountData, setVirtualAccountData] = useState<PaymentPointVirtualAccountResponse | null>(null);
   const [virtualAccountError, setVirtualAccountError] = useState<string | null>(null);
   const [paymentStartedAt, setPaymentStartedAt] = useState<string | null>(null);
-  const [ngnRate, setNgnRate] = useState<number>(1500);
-  const [isLoadingRate, setIsLoadingRate] = useState(true);
-  const [isFallbackRate, setIsFallbackRate] = useState(false);
-  const [rateUpdatedAt, setRateUpdatedAt] = useState<string | null>(null);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
   const paymentPointCheckoutUrl = resolvePaymentPointCheckoutUrl();
   const paymentPointAccountName = resolvePaymentPointAccountName();
   const paymentPointAccountNumber = resolvePaymentPointAccountNumber();
@@ -189,33 +209,68 @@ function Subscription() {
   const hasDynamicBankAccounts = bankAccounts.length > 0;
 
   useEffect(() => {
-    const fetchRate = async () => {
+    let cancelled = false;
+
+    const fetchPlans = async (showLoading = true) => {
+      if (showLoading) {
+        setIsLoadingPlans(true);
+      }
+      setPlansError(null);
+
       try {
-        const res = await apiFetch('/rate');
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+        const { data, error } = await supabase
+          .from('plans')
+          .select('id,name,credits,usd_price,created_at')
+          .gt('credits', 0)
+          .gt('usd_price', 0)
+          .order('credits', { ascending: true });
+
+        if (error) {
+          throw error;
         }
 
-        const data = await res.json();
-        if (typeof data.rate === 'number') {
-          setNgnRate(data.rate);
-          setIsFallbackRate(data.live !== true);
-          setRateUpdatedAt(data.updatedAt || null);
-        }
+        const nextPlans = ((data as SupabasePlan[]) || [])
+          .map(normalizePlan)
+          .filter((plan): plan is CreditPlan => plan !== null);
+
+        if (cancelled) return;
+
+        setCreditPlans(nextPlans);
+        setSelectedPlan((current) => {
+          if (!current) return null;
+          return nextPlans.find((plan) => plan.id === current.id) ?? null;
+        });
       } catch (error) {
-        console.warn('Failed to fetch exchange rate:', error, 'using fallback');
-        setNgnRate(1500);
-        setIsFallbackRate(true);
-        setRateUpdatedAt(null);
+        console.warn('Failed to fetch Supabase pricing plans:', error);
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Unable to load live pricing from Supabase.';
+          setPlansError(message);
+          setCreditPlans([]);
+          setSelectedPlan(null);
+        }
       } finally {
-        setIsLoadingRate(false);
+        if (!cancelled && showLoading) {
+          setIsLoadingPlans(false);
+        }
       }
     };
 
-    fetchRate();
+    void fetchPlans(true);
+
+    const plansChannel = supabase
+      .channel('surevideotool-pricing-plans')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plans' }, () => {
+        void fetchPlans(false);
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(plansChannel);
+    };
   }, []);
 
-  const handleSelectPlan = (plan: typeof CREDIT_PLANS[0]) => {
+  const handleSelectPlan = (plan: CreditPlan) => {
     setSelectedPlan(plan);
   };
 
@@ -424,9 +479,6 @@ function Subscription() {
     }
   };
 
-  const getPriceUSD = (priceNGN: number) => (priceNGN / ngnRate).toFixed(2);
-  const hasLiveRate = !isLoadingRate && !isFallbackRate;
-
   return (
     <div className="min-h-screen bg-[#0f0f10] p-6 lg:p-12 flex flex-col items-center">
       <div className="w-full max-w-[800px] pb-32">
@@ -459,44 +511,55 @@ function Subscription() {
 
         <div className="mb-8">
           <label className="block text-sm font-medium text-[#a1a1aa] mb-3">Select Credits</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {CREDIT_PLANS.map((plan) => {
-              const isSelected = selectedPlan?.credits === plan.credits;
-              const priceUSD = hasLiveRate ? getPriceUSD(plan.priceNGN) : null;
+          {isLoadingPlans ? (
+            <div className="rounded-xl border border-[#27272a] bg-[#131316] p-5 text-sm text-[#a1a1aa]">
+              Loading live pricing from Supabase...
+            </div>
+          ) : plansError ? (
+            <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-5 text-sm text-red-200">
+              Could not load live pricing from Supabase: {plansError}
+            </div>
+          ) : creditPlans.length === 0 ? (
+            <div className="rounded-xl border border-[#27272a] bg-[#131316] p-5 text-sm text-[#a1a1aa]">
+              No credit plans are configured yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {creditPlans.map((plan) => {
+                const isSelected = selectedPlan?.id === plan.id;
 
-              return (
-                <button
-                  key={plan.credits}
-                  onClick={() => handleSelectPlan(plan)}
-                  className={`p-5 rounded-xl border text-left transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-gradient-to-br from-blue-600/15 via-blue-600/5 to-transparent border-blue-500 shadow-xl shadow-blue-500/20 ring-2 ring-blue-500/50'
-                      : 'bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#27272a] hover:border-[#3f3f46] hover:bg-[#1a1a1f]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        isSelected ? 'bg-blue-500/20' : 'bg-[#27272a]'
-                      }`}
-                    >
-                      <Coins className={`w-5 h-5 ${isSelected ? 'text-blue-400' : 'text-[#71717a]'}`} />
+                return (
+                  <button
+                    key={plan.id}
+                    onClick={() => handleSelectPlan(plan)}
+                    className={`p-5 rounded-xl border text-left transition-all duration-200 ${
+                      isSelected
+                        ? 'bg-gradient-to-br from-blue-600/15 via-blue-600/5 to-transparent border-blue-500 shadow-xl shadow-blue-500/20 ring-2 ring-blue-500/50'
+                        : 'bg-gradient-to-br from-[#131316] to-[#0f0f10] border-[#27272a] hover:border-[#3f3f46] hover:bg-[#1a1a1f]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-3">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          isSelected ? 'bg-blue-500/20' : 'bg-[#27272a]'
+                        }`}
+                      >
+                        <Coins className={`w-5 h-5 ${isSelected ? 'text-blue-400' : 'text-[#71717a]'}`} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-[#71717a]">{plan.name}</p>
+                        <span className="text-lg font-bold text-white">{plan.credits.toLocaleString()} Credits</span>
+                        <span className="text-xs text-[#71717a] ml-2">{formatTime(plan.credits)}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-lg font-bold text-white">{plan.credits.toLocaleString()} Credits</span>
-                      <span className="text-xs text-[#71717a] ml-2">{formatTime(plan.credits)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl font-bold text-white">{formatNaira(plan.priceNGN)}</span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold text-white">₦{plan.priceNGN.toLocaleString()}</span>
-                    {priceUSD !== null && (
-                      <span className="text-sm text-[#71717a]">(${priceUSD})</span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="bg-[#131316] border border-[#27272a] rounded-xl p-5 mb-8">
@@ -621,29 +684,9 @@ function Subscription() {
 
         <div className="text-center">
           <p className="text-sm text-[#71717a] mb-4">All purchases are one-time. No subscriptions or hidden fees.</p>
-          {hasLiveRate && (
-            <p className="text-xs text-[#52525b]">
-              Exchange rate: 1 USD = NGN {ngnRate.toLocaleString()}
-            </p>
-          )}
-          {isLoadingRate && (
-            <p className="text-xs text-[#52525b]">
-              Loading pricing...
-            </p>
-          )}
-          {isFallbackRate && (
-            <p className="text-xs text-amber-400 mt-2">
-              Showing fallback pricing. Configure `EXCHANGE_RATE_API_KEY` in the active API environment for live USD to NGN rates.
-            </p>
-          )}
           {!normalizedPhoneNumber && user && (
             <p className="text-xs text-[#71717a] mt-2">
               Enter a phone number to generate your reserved PaymentPoint account.
-            </p>
-          )}
-          {!isFallbackRate && rateUpdatedAt && (
-            <p className="text-xs text-[#52525b] mt-2">
-              Last updated: {new Date(rateUpdatedAt).toLocaleString()}
             </p>
           )}
         </div>
@@ -655,17 +698,9 @@ function Subscription() {
             <div className="flex flex-col">
               <span className="text-sm text-[#a1a1aa] font-medium">Selected Plan</span>
               <span className="text-xl font-bold text-white tracking-tight">
-                {selectedPlan.credits.toLocaleString()} Credits <span className="text-blue-500 font-normal mx-1">/</span> ₦{selectedPlan.priceNGN.toLocaleString()}
-                {hasLiveRate && (
-                  <>
-                    {' '}
-                    <span className="text-[#71717a] font-normal">
-                      (${getPriceUSD(selectedPlan.priceNGN)})
-                    </span>
-                  </>
-                )}
+                {selectedPlan.credits.toLocaleString()} Credits <span className="text-blue-500 font-normal mx-1">/</span> {formatNaira(selectedPlan.priceNGN)}
               </span>
-              <span className="text-xs text-[#71717a] mt-1">{formatTime(selectedPlan.credits)} estimated time</span>
+              <span className="text-xs text-[#71717a] mt-1">{selectedPlan.name} - {formatTime(selectedPlan.credits)} estimated time</span>
             </div>
             <div className="flex items-center gap-3">
               <Button
