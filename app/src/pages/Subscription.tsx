@@ -1,64 +1,146 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Coins, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, Coins, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { useApp } from '@/context/AppContext';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/api-client';
 import { CREDITS_PER_SECOND } from '@/lib/billing';
 
-declare global {
-  interface Window {
-    FlutterwaveCheckout?: (options: any) => void;
-  }
-}
+type CreditPlan = {
+  credits: number;
+  priceNGN: number;
+};
 
-const FLUTTERWAVE_SCRIPT_ID = 'flutterwave-checkout-js';
+type PaymentPointBankAccount = {
+  bankCode?: string;
+  accountNumber?: string;
+  accountName?: string;
+  bankName?: string;
+  Reserved_Account_Id?: string;
+};
 
-function resolveFlutterwavePublicKey(): string {
-  const candidateKeys = [
-    import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY,
-    import.meta.env.VITE_FLW_PUBLIC_KEY,
-    import.meta.env.FLUTTERWAVE_PUBLIC_KEY,
-  ];
+type PaymentPointVirtualAccountResponse = {
+  message?: string;
+  reused?: boolean;
+  cachedAt?: string | null;
+  customer?: {
+    customer_id?: string;
+    customer_name?: string;
+    customer_email?: string;
+    customer_phone_number?: string;
+  };
+  business?: {
+    business_name?: string;
+    business_email?: string;
+    business_phone_number?: string;
+    business_Id?: string | null;
+  };
+  bankAccounts: PaymentPointBankAccount[];
+  amountNGN?: number;
+  credits?: number;
+};
 
-  for (const key of candidateKeys) {
-    if (typeof key === 'string' && key.trim().length > 0) {
-      return key.trim();
+function resolveConfigValue(candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
     }
   }
 
   return '';
 }
 
-function isValidFlutterwavePublicKey(key: string): boolean {
-  return /^FLWPUBK(?:_TEST)?-[A-Za-z0-9_-]+-X$/.test(key);
+function resolvePaymentPointCheckoutUrl(): string {
+  return resolveConfigValue([
+    import.meta.env.VITE_PAYMENTPOINT_CHECKOUT_URL,
+    import.meta.env.VITE_PAYMENTPOINT_URL,
+    import.meta.env.PAYMENTPOINT_CHECKOUT_URL,
+  ]);
 }
 
-function loadFlutterwaveScript(): Promise<void> {
-  if (window.FlutterwaveCheckout) {
-    return Promise.resolve();
-  }
+function resolvePaymentPointAccountName(): string {
+  return resolveConfigValue([
+    import.meta.env.VITE_PAYMENTPOINT_ACCOUNT_NAME,
+    import.meta.env.PAYMENTPOINT_ACCOUNT_NAME,
+  ]);
+}
 
-  const existingScript = document.getElementById(FLUTTERWAVE_SCRIPT_ID) as HTMLScriptElement | null;
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener('load', () => resolve(), { once: true });
-      existingScript.addEventListener('error', () => reject(new Error('Failed to load Flutterwave SDK')), { once: true });
+function resolvePaymentPointAccountNumber(): string {
+  return resolveConfigValue([
+    import.meta.env.VITE_PAYMENTPOINT_ACCOUNT_NUMBER,
+    import.meta.env.PAYMENTPOINT_ACCOUNT_NUMBER,
+  ]);
+}
+
+function resolvePaymentPointBankName(): string {
+  return resolveConfigValue([
+    import.meta.env.VITE_PAYMENTPOINT_BANK_NAME,
+    import.meta.env.PAYMENTPOINT_BANK_NAME,
+  ]);
+}
+
+function normalizePhoneNumber(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function buildPaymentInstructions({
+  plan,
+  email,
+  phoneNumber,
+  bankAccounts,
+  checkoutUrl,
+  accountName,
+  accountNumber,
+  bankName,
+}: {
+  plan: CreditPlan;
+  email: string;
+  phoneNumber?: string;
+  bankAccounts?: PaymentPointBankAccount[];
+  checkoutUrl: string;
+  accountName: string;
+  accountNumber: string;
+  bankName: string;
+}) {
+  const lines = [
+    'Surevideotool PaymentPoint Top-up',
+    `Credits: ${plan.credits.toLocaleString()}`,
+    `Amount: NGN ${plan.priceNGN.toLocaleString()}`,
+    `Use this email in PaymentPoint: ${email}`,
+    phoneNumber ? `Phone Number: ${phoneNumber}` : null,
+    'Transfer the exact amount into the reserved account below.',
+    'Credits are added automatically after PaymentPoint sends a successful webhook.',
+  ].filter(Boolean) as string[];
+
+  if (Array.isArray(bankAccounts) && bankAccounts.length > 0) {
+    bankAccounts.forEach((bankAccount, index) => {
+      lines.push(`Reserved Account ${index + 1}:`);
+      if (bankAccount.accountName) {
+        lines.push(`Account Name: ${bankAccount.accountName}`);
+      }
+      if (bankAccount.accountNumber) {
+        lines.push(`Account Number: ${bankAccount.accountNumber}`);
+      }
+      if (bankAccount.bankName) {
+        lines.push(`Bank: ${bankAccount.bankName}`);
+      }
     });
   }
 
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.id = FLUTTERWAVE_SCRIPT_ID;
-    script.src = 'https://checkout.flutterwave.com/v3.js';
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Flutterwave SDK'));
-    document.body.appendChild(script);
-  });
+  if (checkoutUrl) {
+    lines.push(`Checkout URL: ${checkoutUrl}`);
+  }
+
+  if ((!bankAccounts || bankAccounts.length === 0) && accountName && accountNumber && bankName) {
+    lines.push(`Account Name: ${accountName}`);
+    lines.push(`Account Number: ${accountNumber}`);
+    lines.push(`Bank: ${bankName}`);
+  }
+
+  return lines.join('\n');
 }
 
 const CREDIT_PLANS = [
@@ -83,28 +165,28 @@ function formatTime(credits: number): string {
 function Subscription() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { setBalance, setCredits } = useApp();
-  const [selectedPlan, setSelectedPlan] = useState<typeof CREDIT_PLANS[0] | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<CreditPlan | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(false);
+  const [virtualAccountData, setVirtualAccountData] = useState<PaymentPointVirtualAccountResponse | null>(null);
+  const [virtualAccountError, setVirtualAccountError] = useState<string | null>(null);
+  const [paymentStartedAt, setPaymentStartedAt] = useState<string | null>(null);
   const [ngnRate, setNgnRate] = useState<number>(1500);
   const [isLoadingRate, setIsLoadingRate] = useState(true);
   const [isFallbackRate, setIsFallbackRate] = useState(false);
   const [rateUpdatedAt, setRateUpdatedAt] = useState<string | null>(null);
-  const [isFlutterwaveReady, setIsFlutterwaveReady] = useState(false);
-  const flutterwavePublicKey = resolveFlutterwavePublicKey();
-  const hasValidFlutterwavePublicKey = isValidFlutterwavePublicKey(flutterwavePublicKey);
-  const paymentCompletedRef = useRef(false);
+  const paymentPointCheckoutUrl = resolvePaymentPointCheckoutUrl();
+  const paymentPointAccountName = resolvePaymentPointAccountName();
+  const paymentPointAccountNumber = resolvePaymentPointAccountNumber();
+  const paymentPointBankName = resolvePaymentPointBankName();
+  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+  const bankAccounts = virtualAccountData?.bankAccounts || [];
 
-  useEffect(() => {
-    void loadFlutterwaveScript()
-      .then(() => {
-        setIsFlutterwaveReady(true);
-      })
-      .catch((error) => {
-        console.error(error);
-        setIsFlutterwaveReady(false);
-      });
-  }, []);
+  const hasConfiguredFallbackAccountDetails = Boolean(
+    paymentPointAccountName && paymentPointAccountNumber && paymentPointBankName,
+  );
+  const hasDynamicBankAccounts = bankAccounts.length > 0;
 
   useEffect(() => {
     const fetchRate = async () => {
@@ -137,6 +219,47 @@ function Subscription() {
     setSelectedPlan(plan);
   };
 
+  const paymentInstructions = useMemo(() => {
+    if (!selectedPlan || !user?.email) {
+      return '';
+    }
+
+    return buildPaymentInstructions({
+      plan: selectedPlan,
+      email: user.email,
+      phoneNumber: normalizedPhoneNumber,
+      bankAccounts,
+      checkoutUrl: paymentPointCheckoutUrl,
+      accountName: paymentPointAccountName,
+      accountNumber: paymentPointAccountNumber,
+      bankName: paymentPointBankName,
+    });
+  }, [
+    paymentPointAccountName,
+    paymentPointAccountNumber,
+    paymentPointBankName,
+    bankAccounts,
+    normalizedPhoneNumber,
+    paymentPointCheckoutUrl,
+    selectedPlan,
+    user?.email,
+  ]);
+
+  const copyPaymentInstructions = async () => {
+    if (!paymentInstructions) {
+      toast.error('Select a plan first to copy PaymentPoint instructions.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(paymentInstructions);
+      toast.success('PaymentPoint instructions copied.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to copy payment instructions.');
+    }
+  };
+
   const handleProceedToPayment = async () => {
     if (!selectedPlan) return;
 
@@ -151,111 +274,153 @@ function Subscription() {
       return;
     }
 
-    if (!window.FlutterwaveCheckout) {
-      try {
-        await loadFlutterwaveScript();
-        setIsFlutterwaveReady(true);
-      } catch (error) {
-        console.error(error);
-        toast.error('Payment gateway not loaded. Check your network and try again.');
-        return;
-      }
-    }
-
-    if (!hasValidFlutterwavePublicKey) {
-      toast.error('Payment is unavailable. Flutterwave public key is missing or invalid.');
-      setIsProcessing(false);
+    if (!normalizedPhoneNumber || normalizedPhoneNumber.length < 10) {
+      toast.error('Enter a valid phone number to generate your PaymentPoint account.');
       return;
     }
 
-    const txRef = `surevideotool_${user.id}_${Date.now()}`;
-    const amountNGN = selectedPlan.priceNGN;
-    const priceUSD = Number((selectedPlan.priceNGN / ngnRate).toFixed(2));
+    if (hasDynamicBankAccounts) {
+      if (paymentInstructions) {
+        try {
+          await navigator.clipboard.writeText(paymentInstructions);
+        } catch {
+          // Ignore clipboard issues and still reuse the current account.
+        }
+      }
 
-    paymentCompletedRef.current = false;
+      toast.success('Reusing the existing virtual account for this customer.');
+      toast.info('This app currently reuses the same reserved account for the same email address.');
+      return;
+    }
+
     setIsProcessing(true);
+    setVirtualAccountError(null);
 
     try {
-      window.FlutterwaveCheckout?.({
-        public_key: flutterwavePublicKey,
-        tx_ref: txRef,
-        amount: amountNGN,
-        currency: 'NGN',
-        payment_options: 'card,banktransfer,ussd',
-        customer: {
+      const response = await apiFetch('/create-virtual-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           email: user.email,
           name: user.name || user.email.split('@')[0] || 'Surevideotool User',
-        },
-        meta: {
-          userId: user.id,
+          phoneNumber: normalizedPhoneNumber,
           credits: selectedPlan.credits,
-          priceUSD,
-        },
-        customizations: {
-          title: 'Surevideotool Credits',
-          description: `Purchase ${selectedPlan.credits} credits`,
-        },
-        callback: function (response: any) {
-          if (!response?.transaction_id) {
-            setIsProcessing(false);
-            toast.error('Payment was not completed.');
-            return;
-          }
-
-          paymentCompletedRef.current = true;
-
-          (async () => {
-            try {
-              const res = await apiFetch('/verify-payment', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  reference: response.tx_ref || txRef,
-                  transactionId: response.transaction_id,
-                  userId: user?.id,
-                  credits: selectedPlan.credits,
-                  priceUSD: priceUSD,
-                }),
-              });
-
-              const data = await res.json();
-              if (!res.ok) {
-                throw new Error(data.message || `Server returned ${res.status}`);
-              }
-
-              if (data.status === 'success') {
-                if (typeof data.newBalance === 'number') {
-                  setBalance(data.newBalance);
-                }
-                if (typeof data.newCredits === 'number') {
-                  setCredits(data.newCredits);
-                }
-                toast.success(`Successfully purchased ${selectedPlan.credits} credits!`);
-                navigate('/wallet');
-              } else {
-                toast.error(data.message || 'Payment verification failed');
-              }
-            } catch (error) {
-              console.error(error);
-              toast.error(error instanceof Error ? error.message : 'Payment could not be verified, so credits were not added.');
-            } finally {
-              setIsProcessing(false);
-            }
-          })();
-        },
-        onclose: function () {
-          if (!paymentCompletedRef.current) {
-            toast.info('Payment cancelled');
-            setIsProcessing(false);
-          }
-        },
+          amountNGN: selectedPlan.priceNGN,
+        }),
       });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.status !== 'success' || !Array.isArray(data?.bankAccounts) || data.bankAccounts.length === 0) {
+        throw new Error(data?.message || `PaymentPoint returned HTTP ${response.status}`);
+      }
+
+      setVirtualAccountData(data);
+      setPaymentStartedAt(new Date().toISOString());
+
+      const nextInstructions = buildPaymentInstructions({
+        plan: selectedPlan,
+        email: user.email,
+        phoneNumber: normalizedPhoneNumber,
+        bankAccounts: data.bankAccounts,
+        checkoutUrl: paymentPointCheckoutUrl,
+        accountName: paymentPointAccountName,
+        accountNumber: paymentPointAccountNumber,
+        bankName: paymentPointBankName,
+      });
+
+      if (nextInstructions) {
+        try {
+          await navigator.clipboard.writeText(nextInstructions);
+          toast.success('Virtual account ready. Payment instructions copied.');
+        } catch {
+          toast.success('Virtual account ready.');
+        }
+      } else {
+        toast.success('Virtual account ready.');
+      }
+
+      if (paymentPointCheckoutUrl) {
+        toast.info('A PaymentPoint checkout link is also available below if you still need it.');
+      }
+
+      toast.info('Transfer the exact amount into the reserved account. Credits will be added automatically after webhook confirmation.');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to initialize payment gateway');
-      setIsProcessing(false);
+      const message = error instanceof Error ? error.message : 'Failed to create PaymentPoint virtual account';
+      setVirtualAccountData(null);
+      setVirtualAccountError(message);
+      toast.error(message);
+    }
+
+    setIsProcessing(false);
+  };
+
+  const handleVerifyTransferredPayment = async () => {
+    if (!selectedPlan) {
+      toast.error('Select a plan first.');
+      return;
+    }
+
+    if (!user?.id || !user.email) {
+      toast.error('Please log in before verifying a transfer.');
+      return;
+    }
+
+    if (!hasDynamicBankAccounts) {
+      toast.error('Generate a PaymentPoint virtual account first.');
+      return;
+    }
+
+    setIsCheckingPayment(true);
+    setVirtualAccountError(null);
+
+    try {
+      const response = await apiFetch('/verify-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          customerEmail: user.email,
+          customerId: virtualAccountData?.customer?.customer_id,
+          receiverAccountNumber: bankAccounts[0]?.accountNumber,
+          amountNGN: selectedPlan.priceNGN,
+          credits: selectedPlan.credits,
+          createdAfter: paymentStartedAt,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 202 || data?.status === 'pending') {
+        toast.info(data?.message || 'Payment is still pending confirmation. Please try again shortly.');
+        return;
+      }
+
+      if (!response.ok || data?.status !== 'success') {
+        throw new Error(data?.message || `PaymentPoint returned HTTP ${response.status}`);
+      }
+
+      const creditsAdded = Number(data?.creditsAdded || 0);
+      if (creditsAdded > 0) {
+        toast.success(`Payment verified. ${creditsAdded.toLocaleString()} credits added.`);
+      } else {
+        toast.success(data?.message || 'Payment already processed.');
+      }
+
+      if (Number.isFinite(Number(data?.newCredits))) {
+        toast.info(`Wallet balance: ${Number(data.newCredits).toLocaleString()} credits.`);
+      }
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : 'Unable to verify your transfer right now';
+      setVirtualAccountError(message);
+      toast.error(message);
+    } finally {
+      setIsCheckingPayment(false);
     }
   };
 
@@ -343,6 +508,117 @@ function Subscription() {
             <li>- Credits never expire</li>
           </ul>
         </div>
+
+        <div className="bg-[#131316] border border-[#27272a] rounded-xl p-5 mb-8">
+          <h3 className="text-sm font-semibold text-white mb-2">PaymentPoint flow</h3>
+          <ul className="text-sm text-[#a1a1aa] space-y-1">
+            <li>- Enter the phone number PaymentPoint should attach to your reserved bank account</li>
+            <li>- Generate the virtual account, then transfer the exact amount for the selected plan</li>
+            <li>- After transfer, click the manual verification button below to recheck your payment</li>
+            <li>- Credits are added once PaymentPoint sends or has already sent a successful webhook notification</li>
+          </ul>
+
+          {user?.email && (
+            <p className="text-xs text-blue-300 mt-4">
+              Payment email for this session: {user.email}
+            </p>
+          )}
+
+          <div className="mt-4 space-y-2">
+            <label htmlFor="paymentpoint-phone" className="block text-xs uppercase tracking-[0.18em] text-[#71717a]">
+              PaymentPoint Phone Number
+            </label>
+            <Input
+              id="paymentpoint-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="08012345678"
+              value={phoneNumber}
+              onChange={(event) => {
+                setPhoneNumber(event.target.value);
+                setVirtualAccountData(null);
+                setVirtualAccountError(null);
+                setPaymentStartedAt(null);
+              }}
+              className="h-11 border-[#27272a] bg-[#0f0f10] text-white placeholder:text-[#52525b]"
+            />
+            <p className="text-xs text-[#71717a]">
+              PaymentPoint requires a customer phone number before it can reserve a virtual account.
+            </p>
+          </div>
+
+          {hasDynamicBankAccounts && (
+            <div className="mt-4 rounded-xl border border-[#27272a] bg-[#0f0f10] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#71717a] mb-3">Reserved PaymentPoint account</p>
+              <div className="space-y-3">
+                {bankAccounts.map((bankAccount) => (
+                  <div
+                    key={`${bankAccount.bankCode || bankAccount.bankName || 'bank'}-${bankAccount.accountNumber || bankAccount.Reserved_Account_Id || 'account'}`}
+                    className="rounded-lg border border-[#27272a] bg-[#131316] p-4"
+                  >
+                    <p className="text-sm font-semibold text-white">{bankAccount.accountName || 'PaymentPoint Account'}</p>
+                    <p className="text-lg font-bold text-white tracking-[0.08em] mt-1">{bankAccount.accountNumber || '-'}</p>
+                    <p className="text-sm text-[#a1a1aa] mt-1">{bankAccount.bankName || 'PaymentPoint Partner Bank'}</p>
+                  </div>
+                ))}
+              </div>
+              {virtualAccountData?.message && (
+                <p className="text-xs text-emerald-300 mt-3">{virtualAccountData.message}</p>
+              )}
+            </div>
+          )}
+
+          {!hasDynamicBankAccounts && hasConfiguredFallbackAccountDetails && (
+            <div className="mt-4 rounded-xl border border-[#27272a] bg-[#0f0f10] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#71717a] mb-2">Fallback PaymentPoint account</p>
+              <p className="text-sm text-white">{paymentPointAccountName}</p>
+              <p className="text-sm text-white">{paymentPointAccountNumber}</p>
+              <p className="text-sm text-[#a1a1aa]">{paymentPointBankName}</p>
+            </div>
+          )}
+
+          {virtualAccountError && (
+            <p className="text-sm text-red-400 mt-4">{virtualAccountError}</p>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={copyPaymentInstructions}
+              disabled={!selectedPlan || !user?.email}
+              className="border-[#3f3f46] bg-transparent text-white hover:bg-[#1a1a1f]"
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Copy Instructions
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleVerifyTransferredPayment}
+              disabled={!hasDynamicBankAccounts || isCheckingPayment}
+              className="border-[#3f3f46] bg-transparent text-white hover:bg-[#1a1a1f]"
+            >
+              {isCheckingPayment ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              I've Made Transfer
+            </Button>
+
+            {paymentPointCheckoutUrl && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.open(paymentPointCheckoutUrl, '_blank', 'noopener,noreferrer')}
+                className="border-[#3f3f46] bg-transparent text-white hover:bg-[#1a1a1f]"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Open Checkout
+              </Button>
+            )}
+          </div>
+        </div>
+
         <div className="text-center">
           <p className="text-sm text-[#71717a] mb-4">All purchases are one-time. No subscriptions or hidden fees.</p>
           {hasLiveRate && (
@@ -352,7 +628,7 @@ function Subscription() {
           )}
           {isLoadingRate && (
             <p className="text-xs text-[#52525b]">
-                {isFlutterwaveReady ? 'Proceed to Payment' : 'Loading payment gateway...'}
+              Loading pricing...
             </p>
           )}
           {isFallbackRate && (
@@ -360,9 +636,9 @@ function Subscription() {
               Showing fallback pricing. Configure `EXCHANGE_RATE_API_KEY` in the active API environment for live USD to NGN rates.
             </p>
           )}
-          {!hasValidFlutterwavePublicKey && (
-            <p className="text-xs text-red-400 mt-2">
-              Payments are temporarily unavailable due to invalid Flutterwave configuration.
+          {!normalizedPhoneNumber && user && (
+            <p className="text-xs text-[#71717a] mt-2">
+              Enter a phone number to generate your reserved PaymentPoint account.
             </p>
           )}
           {!isFallbackRate && rateUpdatedAt && (
@@ -391,14 +667,42 @@ function Subscription() {
               </span>
               <span className="text-xs text-[#71717a] mt-1">{formatTime(selectedPlan.credits)} estimated time</span>
             </div>
-            <Button
-              onClick={handleProceedToPayment}
-              disabled={isProcessing || !isFlutterwaveReady || !hasValidFlutterwavePublicKey}
-              className="h-12 px-8 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:scale-105 transition-all"
-            >
-              {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : 'Pay Now'}
-              {!isProcessing && <ArrowRight className="w-5 h-5 ml-2" />}
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleVerifyTransferredPayment}
+                disabled={!hasDynamicBankAccounts || isCheckingPayment}
+                className="h-12 px-6 border-[#3f3f46] bg-transparent text-white hover:bg-[#1a1a1f]"
+              >
+                {isCheckingPayment ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                I've Made Transfer
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={copyPaymentInstructions}
+                disabled={!paymentInstructions}
+                className="h-12 px-6 border-[#3f3f46] bg-transparent text-white hover:bg-[#1a1a1f]"
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                Copy Details
+              </Button>
+              <Button
+                onClick={handleProceedToPayment}
+                disabled={isProcessing || !normalizedPhoneNumber}
+                className="h-12 px-8 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:scale-105 transition-all"
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                ) : hasDynamicBankAccounts ? (
+                  'Use Existing Account'
+                ) : (
+                  'Generate Virtual Account'
+                )}
+                {!isProcessing && <ArrowRight className="w-5 h-5 ml-2" />}
+              </Button>
+            </div>
           </div>
         </div>
       )}

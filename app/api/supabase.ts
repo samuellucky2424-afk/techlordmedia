@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { createClient } from '@supabase/supabase-js';
 
+import { createLoggedSupabaseClient } from '../../shared/logged-supabase-client.js';
+
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -10,8 +12,12 @@ export const supabaseAdminConfigError = !supabaseUrl
     ? 'Missing SUPABASE_SERVICE_KEY or SUPABASE_SERVICE_ROLE_KEY'
     : null;
 
-export const supabaseAdmin = (supabaseUrl && supabaseServiceKey)
+const rawSupabaseAdmin = (supabaseUrl && supabaseServiceKey)
   ? createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     })
+  : null;
+
+export const supabaseAdmin = rawSupabaseAdmin
+  ? createLoggedSupabaseClient(rawSupabaseAdmin, 'app-api')
   : null;

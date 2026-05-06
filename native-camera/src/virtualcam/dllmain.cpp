@@ -1,6 +1,8 @@
 #include <initguid.h>
 #include <olectl.h>
 
+#include <string>
+
 #include "virtual_camera_source.h"
 
 #include "surevideotool/surevideotool_ids.h"
@@ -96,18 +98,24 @@ STDAPI DllRegisterServer()
     {
         // Add DevicePath to the DirectShow category instance so Chromium-based apps
         // can properly enumerate this camera alongside the MF virtual camera.
-        static constexpr wchar_t kDevicePath[] =
-            L"@device:sw:{860BB310-5D01-11d0-BD3B-00A0C911CE86}\\{6CB9DF61-861F-4FC0-91EB-43D20D44D791}";
         static constexpr wchar_t kInstanceKeyPath[] =
             L"SOFTWARE\\Classes\\CLSID\\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\\Instance\\Surevideotool";
 
-        HKEY instanceKey = nullptr;
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kInstanceKeyPath, 0, KEY_SET_VALUE, &instanceKey) == ERROR_SUCCESS)
+        wchar_t clsidValue[64]{};
+        if (StringFromGUID2(surevideotool::kVirtualCameraSourceClsid, clsidValue, ARRAYSIZE(clsidValue)) > 0)
         {
-            const size_t byteCount = (wcslen(kDevicePath) + 1) * sizeof(wchar_t);
-            RegSetValueExW(instanceKey, L"DevicePath", 0, REG_SZ,
-                reinterpret_cast<const BYTE*>(kDevicePath), static_cast<DWORD>(byteCount));
-            RegCloseKey(instanceKey);
+            const std::wstring devicePath =
+                std::wstring(L"@device:sw:{860BB310-5D01-11d0-BD3B-00A0C911CE86}\\") +
+                clsidValue;
+
+            HKEY instanceKey = nullptr;
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kInstanceKeyPath, 0, KEY_SET_VALUE, &instanceKey) == ERROR_SUCCESS)
+            {
+                const size_t byteCount = (devicePath.size() + 1) * sizeof(wchar_t);
+                RegSetValueExW(instanceKey, L"DevicePath", 0, REG_SZ,
+                    reinterpret_cast<const BYTE*>(devicePath.c_str()), static_cast<DWORD>(byteCount));
+                RegCloseKey(instanceKey);
+            }
         }
     }
 

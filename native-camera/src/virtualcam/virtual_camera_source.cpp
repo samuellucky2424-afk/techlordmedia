@@ -463,7 +463,12 @@ namespace surevideotool::virtualcam
         private:
             bool EnsureOpen() noexcept
             {
-                if (view_ != nullptr && mappingHandle_ != nullptr && mutexHandle_ != nullptr)
+                if (usingFileBridge_ && bridgeFile_ != nullptr && mappingHandle_ != nullptr && view_ != nullptr)
+                {
+                    return true;
+                }
+
+                if (!usingFileBridge_ && view_ != nullptr && mappingHandle_ != nullptr && mutexHandle_ != nullptr)
                 {
                     return true;
                 }
@@ -472,6 +477,12 @@ namespace surevideotool::virtualcam
                 if (now < nextOpenAttemptTickMs_)
                 {
                     return false;
+                }
+
+                Close();
+                if (EnsureOpenFileBridge())
+                {
+                    return true;
                 }
 
                 Close();
@@ -489,6 +500,65 @@ namespace surevideotool::virtualcam
                 Close();
                 nextOpenAttemptTickMs_ = now + kOpenRetryDelayMs;
                 return false;
+            }
+
+            bool EnsureOpenFileBridge() noexcept
+            {
+                bridgeFile_ = CreateFileW(
+                    kMfPublisherBridgeFilePath,
+                    GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    nullptr);
+                if (bridgeFile_ == INVALID_HANDLE_VALUE)
+                {
+                    bridgeFile_ = nullptr;
+                    return false;
+                }
+
+                LARGE_INTEGER fileSize{};
+                if (!GetFileSizeEx(bridgeFile_, &fileSize))
+                {
+                    Close();
+                    return false;
+                }
+
+                const std::size_t minimumByteCount = sizeof(SharedFrameHeader) + kBgraFrameBytes;
+                if (fileSize.QuadPart < static_cast<LONGLONG>(minimumByteCount))
+                {
+                    Close();
+                    return false;
+                }
+
+                mappingByteCount_ = static_cast<std::size_t>(fileSize.QuadPart);
+                mappingHandle_ = CreateFileMappingW(bridgeFile_, nullptr, PAGE_READONLY, 0, 0, nullptr);
+                if (mappingHandle_ == nullptr)
+                {
+                    Close();
+                    return false;
+                }
+
+                view_ = MapViewOfFile(mappingHandle_, FILE_MAP_READ, 0, 0, 0);
+                if (view_ == nullptr)
+                {
+                    Close();
+                    return false;
+                }
+
+                const auto* header = static_cast<const SharedFrameHeader*>(view_);
+                if (header == nullptr ||
+                    header->magic != kProtocolMagic ||
+                    header->version != kProtocolVersion ||
+                    header->pixelFormat != kPixelFormatBgra32)
+                {
+                    Close();
+                    return false;
+                }
+
+                usingFileBridge_ = true;
+                return true;
             }
 
             bool EnsureOpenWithNamespace(const BridgeNames& names, bool allowCreate) noexcept
@@ -578,6 +648,11 @@ namespace surevideotool::virtualcam
 
             bool ReadLatestFrame() noexcept
             {
+                if (usingFileBridge_)
+                {
+                    return ReadLatestFrameFromFileBridge();
+                }
+
                 if (view_ == nullptr || mutexHandle_ == nullptr)
                 {
                     return false;
@@ -619,6 +694,65 @@ namespace surevideotool::virtualcam
                 return true;
             }
 
+            bool ReadLatestFrameFromFileBridge() noexcept
+            {
+                if (view_ == nullptr)
+                {
+                    return false;
+                }
+
+                const auto* header = static_cast<const SharedFrameHeader*>(view_);
+                if (header == nullptr ||
+                    header->magic != kProtocolMagic ||
+                    header->version != kProtocolVersion ||
+                    header->pixelFormat != kPixelFormatBgra32)
+                {
+                    return false;
+                }
+
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    const LONG sequenceStart = static_cast<LONG>(header->reserved);
+                    if ((sequenceStart & 0x1L) != 0)
+                    {
+                        continue;
+                    }
+
+                    MemoryBarrier();
+
+                    const uint32_t payloadBytes = header->payloadBytes;
+                    const uint64_t frameCounter = header->frameCounter;
+                    if (frameCounter == 0 || frameCounter == lastFrameCounter_)
+                    {
+                        return false;
+                    }
+
+                    if (header->width != static_cast<uint32_t>(kFrameWidth) ||
+                        header->height != static_cast<uint32_t>(kFrameHeight) ||
+                        header->stride != static_cast<uint32_t>(kBgraStrideBytes) ||
+                        payloadBytes != kBgraFrameBytes ||
+                        mappingByteCount_ < (sizeof(SharedFrameHeader) + static_cast<std::size_t>(payloadBytes)))
+                    {
+                        return false;
+                    }
+
+                    const uint8_t* payload = reinterpret_cast<const uint8_t*>(header + 1);
+                    std::memcpy(bgraScratch_.get(), payload, kBgraFrameBytes);
+
+                    MemoryBarrier();
+
+                    const LONG sequenceEnd = static_cast<LONG>(header->reserved);
+                    if (sequenceStart == sequenceEnd && (sequenceEnd & 0x1L) == 0)
+                    {
+                        lastFrameCounter_ = frameCounter;
+                        CopyFrameToSharedLatest(bgraScratch_.get());
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
             void Close() noexcept
             {
                 if (view_ != nullptr)
@@ -644,14 +778,26 @@ namespace surevideotool::virtualcam
                     CloseHandle(mappingHandle_);
                     mappingHandle_ = nullptr;
                 }
+
+                if (bridgeFile_ != nullptr)
+                {
+                    CloseHandle(bridgeFile_);
+                    bridgeFile_ = nullptr;
+                }
+
+                usingFileBridge_ = false;
+                mappingByteCount_ = 0;
             }
 
             HANDLE mappingHandle_ = nullptr;
             HANDLE mutexHandle_ = nullptr;
             HANDLE eventHandle_ = nullptr;
+            HANDLE bridgeFile_ = nullptr;
             void* view_ = nullptr;
             std::uint64_t lastFrameCounter_ = 0;
             ULONGLONG nextOpenAttemptTickMs_ = 0;
+            std::size_t mappingByteCount_ = 0;
+            bool usingFileBridge_ = false;
             std::unique_ptr<uint8_t[]> bgraScratch_;
         };
 

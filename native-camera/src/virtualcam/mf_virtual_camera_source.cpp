@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include <ks.h>
@@ -14,6 +15,7 @@
 #include <mferror.h>
 #include <mfidl.h>
 #include <mfobjects.h>
+#include <mfvirtualcamera.h>
 #include <propvarutil.h>
 #include <sddl.h>
 #include <strsafe.h>
@@ -261,6 +263,11 @@ namespace surevideotool::virtualcam
                 return width * 2;
             }
 
+            if (subtype == MFVideoFormat_RGB32)
+            {
+                return width * 4;
+            }
+
             if (subtype == MFVideoFormat_NV12)
             {
                 return width;
@@ -274,6 +281,11 @@ namespace surevideotool::virtualcam
             if (subtype == MFVideoFormat_YUY2)
             {
                 return width * height * 2;
+            }
+
+            if (subtype == MFVideoFormat_RGB32)
+            {
+                return width * height * 4;
             }
 
             if (subtype == MFVideoFormat_NV12)
@@ -291,7 +303,7 @@ namespace surevideotool::virtualcam
                 return E_POINTER;
             }
 
-            if (subtype != MFVideoFormat_YUY2 && subtype != MFVideoFormat_NV12)
+            if (subtype != MFVideoFormat_YUY2 && subtype != MFVideoFormat_NV12 && subtype != MFVideoFormat_RGB32)
             {
                 return MF_E_INVALIDMEDIATYPE;
             }
@@ -449,6 +461,50 @@ namespace surevideotool::virtualcam
             return static_cast<size_t>(width) * height * 3 / 2;
         }
 
+        constexpr size_t Yuy2FrameBytes(uint32_t width, uint32_t height) noexcept
+        {
+            return static_cast<size_t>(width) * height * 2;
+        }
+
+        constexpr size_t Rgb32FrameBytes(uint32_t width, uint32_t height) noexcept
+        {
+            return static_cast<size_t>(width) * height * 4;
+        }
+
+        void FillBlackYuy2(uint8_t* dst, uint32_t width, uint32_t height) noexcept
+        {
+            if (dst == nullptr || width == 0 || height == 0)
+            {
+                return;
+            }
+
+            const size_t byteCount = Yuy2FrameBytes(width, height);
+            for (size_t offset = 0; offset + 3 < byteCount; offset += 4)
+            {
+                dst[offset + 0] = 16;
+                dst[offset + 1] = 128;
+                dst[offset + 2] = 16;
+                dst[offset + 3] = 128;
+            }
+        }
+
+        void FillBlackRgb32(uint8_t* dst, uint32_t width, uint32_t height) noexcept
+        {
+            if (dst == nullptr || width == 0 || height == 0)
+            {
+                return;
+            }
+
+            const size_t byteCount = Rgb32FrameBytes(width, height);
+            for (size_t offset = 0; offset + 3 < byteCount; offset += 4)
+            {
+                dst[offset + 0] = 0;
+                dst[offset + 1] = 0;
+                dst[offset + 2] = 0;
+                dst[offset + 3] = 0xff;
+            }
+        }
+
         // Fill an NV12 buffer with limited-range black (Y=16, UV=128). Cheap, safe
         // fallback that always satisfies the FrameServer when no real frame is ready.
         void FillBlackNv12(uint8_t* dst, uint32_t width, uint32_t height) noexcept
@@ -530,6 +586,95 @@ namespace surevideotool::virtualcam
             return true;
         }
 
+        bool WriteBgraToYuy2Buffer(
+            const uint8_t* bgra,
+            uint32_t srcStride,
+            uint8_t* dst,
+            size_t destBytes,
+            uint32_t width,
+            uint32_t height) noexcept
+        {
+            if (bgra == nullptr || dst == nullptr || width == 0 || height == 0)
+            {
+                return false;
+            }
+
+            const size_t requiredBytes = Yuy2FrameBytes(width, height);
+            if (destBytes < requiredBytes)
+            {
+                return false;
+            }
+
+            const uint32_t dstStride = width * 2;
+            for (uint32_t y = 0; y < height; ++y)
+            {
+                const uint8_t* srcRow = bgra + (static_cast<size_t>(y) * srcStride);
+                uint8_t* dstRow = dst + (static_cast<size_t>(y) * dstStride);
+
+                for (uint32_t x = 0; x < width; x += 2)
+                {
+                    const uint8_t* pixel0 = srcRow + (static_cast<size_t>(x) * 4);
+                    const uint8_t* pixel1 = srcRow + (static_cast<size_t>(std::min(x + 1, width - 1)) * 4);
+
+                    const uint8_t blue0 = pixel0[0];
+                    const uint8_t green0 = pixel0[1];
+                    const uint8_t red0 = pixel0[2];
+                    const uint8_t blue1 = pixel1[0];
+                    const uint8_t green1 = pixel1[1];
+                    const uint8_t red1 = pixel1[2];
+
+                    const uint8_t y0 = ToLuma(red0, green0, blue0);
+                    const uint8_t y1 = ToLuma(red1, green1, blue1);
+                    const uint8_t u0 = ToChromaU(red0, green0, blue0);
+                    const uint8_t u1 = ToChromaU(red1, green1, blue1);
+                    const uint8_t v0 = ToChromaV(red0, green0, blue0);
+                    const uint8_t v1 = ToChromaV(red1, green1, blue1);
+
+                    const size_t dstIndex = static_cast<size_t>(x) * 2;
+                    dstRow[dstIndex + 0] = y0;
+                    dstRow[dstIndex + 1] = static_cast<uint8_t>((static_cast<uint16_t>(u0) + static_cast<uint16_t>(u1)) / 2);
+                    dstRow[dstIndex + 2] = y1;
+                    dstRow[dstIndex + 3] = static_cast<uint8_t>((static_cast<uint16_t>(v0) + static_cast<uint16_t>(v1)) / 2);
+                }
+            }
+
+            return true;
+        }
+
+        bool WriteBgraToRgb32Buffer(
+            const uint8_t* bgra,
+            uint32_t srcStride,
+            uint8_t* dst,
+            size_t destBytes,
+            uint32_t width,
+            uint32_t height) noexcept
+        {
+            if (bgra == nullptr || dst == nullptr || width == 0 || height == 0)
+            {
+                return false;
+            }
+
+            const size_t requiredBytes = Rgb32FrameBytes(width, height);
+            if (destBytes < requiredBytes)
+            {
+                return false;
+            }
+
+            const size_t rowBytes = static_cast<size_t>(width) * 4;
+            for (uint32_t y = 0; y < height; ++y)
+            {
+                const uint8_t* srcRow = bgra + (static_cast<size_t>(y) * srcStride);
+                uint8_t* dstRow = dst + (static_cast<size_t>(y) * rowBytes);
+                std::memcpy(dstRow, srcRow, rowBytes);
+                for (uint32_t x = 0; x < width; ++x)
+                {
+                    dstRow[(static_cast<size_t>(x) * 4) + 3] = 0xff;
+                }
+            }
+
+            return true;
+        }
+
         void ApplyYuy2Heartbeat(uint8_t* yuy2Bytes, size_t byteCount, uint64_t frameIndex) noexcept
         {
             if (yuy2Bytes == nullptr || byteCount < 4)
@@ -562,6 +707,18 @@ namespace surevideotool::virtualcam
             const uint8_t pulse = static_cast<uint8_t>(frameIndex & 0x01ULL);
             nv12Bytes[0] = static_cast<uint8_t>((nv12Bytes[0] & 0xfeU) | pulse);
             nv12Bytes[yPlaneBytes - 1] = static_cast<uint8_t>((nv12Bytes[yPlaneBytes - 1] & 0xfeU) | static_cast<uint8_t>(pulse ^ 0x01U));
+        }
+
+        void ApplyRgb32Heartbeat(uint8_t* rgb32Bytes, size_t byteCount, uint64_t frameIndex) noexcept
+        {
+            if (rgb32Bytes == nullptr || byteCount < 8)
+            {
+                return;
+            }
+
+            const uint8_t pulse = static_cast<uint8_t>(frameIndex & 0x01ULL);
+            rgb32Bytes[0] = static_cast<uint8_t>((rgb32Bytes[0] & 0xfeU) | pulse);
+            rgb32Bytes[4] = static_cast<uint8_t>((rgb32Bytes[4] & 0xfeU) | static_cast<uint8_t>(pulse ^ 0x01U));
         }
 
         class SharedFrameReader
@@ -1102,6 +1259,7 @@ namespace surevideotool::virtualcam
             MediaConfig mediaConfig_{};
             SharedFrameReader frameReader_;
             std::vector<uint8_t> cachedBgraFrame_;
+            MediaConfig cachedBgraConfig_{};
             bool isShutdown_ = false;
             bool isSelected_ = false;
             bool hasCachedFrame_ = false;
@@ -1174,10 +1332,8 @@ namespace surevideotool::virtualcam
 
             HRESULT Initialize()
             {
-                RETURN_IF_FAILED(MFCreateAttributes(&attributes_, 3));
-                RETURN_IF_FAILED(attributes_->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));
-                RETURN_IF_FAILED(attributes_->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_CATEGORY, KSCATEGORY_VIDEO_CAMERA));
-                RETURN_IF_FAILED(attributes_->SetString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, kVirtualCameraFriendlyName));
+                AppendMfVirtualCameraLogLine(L"[Activate::Initialize] called.");
+                RETURN_IF_FAILED(MFCreateAttributes(&attributes_, 1));
                 return S_OK;
             }
 
@@ -1238,6 +1394,8 @@ namespace surevideotool::virtualcam
 
             IFACEMETHODIMP CreateInstance(IUnknown* outer, REFIID interfaceId, void** object) override
             {
+                AppendMfVirtualCameraLogLine(L"[ClassFactory::CreateInstance] called.");
+
                 if (object == nullptr)
                 {
                     return E_POINTER;
@@ -1285,10 +1443,8 @@ namespace surevideotool::virtualcam
             std::lock_guard<std::mutex> guard(lock_);
 
             parent_ = parent;
-            // Force a known-good profile for the initial release: NV12 1280x720 @ 30fps.
-            // Some FrameServer pipelines on third-party machines pick the first listed
-            // subtype and stall if conversion is needed; sticking to a single subtype
-            // matches what every camera client expects out of the box.
+            // Offer RGB32, NV12, and YUY2. Some WebRTC clients reject cameras that
+            // don't expose RGB32 during capability negotiation.
             mediaConfig_ = config;
             mediaConfig_.width = kDefaultWidth;
             mediaConfig_.height = kDefaultHeight;
@@ -1304,16 +1460,20 @@ namespace surevideotool::virtualcam
             RETURN_IF_FAILED(attributes_->SetUINT32(MF_DEVICESTREAM_FRAMESERVER_SHARED, 1));
             RETURN_IF_FAILED(attributes_->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES, static_cast<UINT32>(MFFrameSourceTypes::MFFrameSourceTypes_Color)));
 
+            ComPtr<IMFMediaType> rgb32MediaType;
+            RETURN_IF_FAILED(CreateVideoType(MFVideoFormat_RGB32, mediaConfig_, &rgb32MediaType));
             ComPtr<IMFMediaType> nv12MediaType;
             RETURN_IF_FAILED(CreateVideoType(MFVideoFormat_NV12, mediaConfig_, &nv12MediaType));
-            IMFMediaType* mediaTypePointers[] = { nv12MediaType.Get() };
+            ComPtr<IMFMediaType> yuy2MediaType;
+            RETURN_IF_FAILED(CreateVideoType(MFVideoFormat_YUY2, mediaConfig_, &yuy2MediaType));
+            IMFMediaType* mediaTypePointers[] = { rgb32MediaType.Get(), nv12MediaType.Get(), yuy2MediaType.Get() };
             RETURN_IF_FAILED(MFCreateStreamDescriptor(kStreamId, ARRAYSIZE(mediaTypePointers), mediaTypePointers, &streamDescriptor_));
             RETURN_IF_FAILED(attributes_->CopyAllItems(streamDescriptor_.Get()));
 
             ComPtr<IMFMediaTypeHandler> handler;
             RETURN_IF_FAILED(streamDescriptor_->GetMediaTypeHandler(&handler));
-            RETURN_IF_FAILED(handler->SetCurrentMediaType(nv12MediaType.Get()));
-            currentMediaType_ = nv12MediaType;
+            RETURN_IF_FAILED(handler->SetCurrentMediaType(rgb32MediaType.Get()));
+            currentMediaType_ = rgb32MediaType;
 
             streamState_ = MF_STREAM_STATE_STOPPED;
             isSelected_ = false;
@@ -1363,12 +1523,10 @@ namespace surevideotool::virtualcam
                 return E_INVALIDARG;
             }
 
-            // Refuse anything other than NV12 — we only advertise NV12 in the stream
-            // descriptor, so any other request is a negotiation bug we'd rather fail
-            // loudly than silently produce garbage frames.
+            // Accept the formats we advertise in the stream descriptor.
             GUID requestedSubtype = GUID_NULL;
             if (FAILED(mediaType->GetGUID(MF_MT_SUBTYPE, &requestedSubtype))
-                || requestedSubtype != MFVideoFormat_NV12)
+                || (requestedSubtype != MFVideoFormat_YUY2 && requestedSubtype != MFVideoFormat_NV12 && requestedSubtype != MFVideoFormat_RGB32))
             {
                 return MF_E_INVALIDMEDIATYPE;
             }
@@ -1381,6 +1539,9 @@ namespace surevideotool::virtualcam
             isSelected_ = true;
             sampleFrameIndex_ = 0;
             syntheticFrameIndex_ = 0;
+            cachedBgraFrame_.clear();
+            cachedBgraConfig_ = {};
+            hasCachedFrame_ = false;
 
             if (sendEvents)
             {
@@ -1480,13 +1641,18 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaStream::GetEvent(DWORD flags, IMFMediaEvent** eventValue)
         {
-            std::lock_guard<std::mutex> guard(lock_);
-            if (isShutdown_)
+            ComPtr<IMFMediaEventQueue> eventQueue;
             {
-                return MF_E_SHUTDOWN;
+                std::lock_guard<std::mutex> guard(lock_);
+                if (isShutdown_)
+                {
+                    return MF_E_SHUTDOWN;
+                }
+
+                eventQueue = eventQueue_;
             }
 
-            return eventQueue_->GetEvent(flags, eventValue);
+            return eventQueue ? eventQueue->GetEvent(flags, eventValue) : MF_E_SHUTDOWN;
         }
 
         IFACEMETHODIMP SurevideotoolMediaStream::QueueEvent(MediaEventType eventType, REFGUID extendedType, HRESULT status, const PROPVARIANT* value)
@@ -1639,11 +1805,10 @@ namespace surevideotool::virtualcam
 
             *sample = nullptr;
 
-            // We only ever advertise NV12, but verify defensively in case a client
-            // calls us with a stale media type pointer.
+            // Verify the negotiated subtype matches one of the formats we advertise.
             GUID subtype = GUID_NULL;
             RETURN_IF_FAILED(mediaType->GetGUID(MF_MT_SUBTYPE, &subtype));
-            if (subtype != MFVideoFormat_NV12)
+            if (subtype != MFVideoFormat_YUY2 && subtype != MFVideoFormat_NV12 && subtype != MFVideoFormat_RGB32)
             {
                 return MF_E_INVALIDMEDIATYPE;
             }
@@ -1667,7 +1832,8 @@ namespace surevideotool::virtualcam
                 fpsDen = kDefaultFpsDenominator;
             }
 
-            // Round width/height to even numbers — required for NV12 4:2:0 chroma.
+            // Round width/height to even numbers — required for YUY2 packing and
+            // NV12 4:2:0 chroma.
             width &= ~1u;
             height &= ~1u;
             if (width == 0 || height == 0)
@@ -1675,7 +1841,9 @@ namespace surevideotool::virtualcam
                 return MF_E_INVALIDMEDIATYPE;
             }
 
-            const size_t outputBytes = Nv12FrameBytes(width, height);
+            const size_t outputBytes = subtype == MFVideoFormat_YUY2
+                ? Yuy2FrameBytes(width, height)
+                : (subtype == MFVideoFormat_NV12 ? Nv12FrameBytes(width, height) : Rgb32FrameBytes(width, height));
             const DWORD outputBytesDword = static_cast<DWORD>(outputBytes);
 
             // 1) Allocate the exact-size output buffer up-front so we can guarantee a
@@ -1696,7 +1864,18 @@ namespace surevideotool::virtualcam
             // 2) Pre-fill with limited-range black. Worst case (no publisher, slow
             //    publisher, mismatched dims) the consumer still gets a valid frame on
             //    time — far better than the source being torn down with a timeout.
-            FillBlackNv12(destination, width, height);
+            if (subtype == MFVideoFormat_YUY2)
+            {
+                FillBlackYuy2(destination, width, height);
+            }
+            else if (subtype == MFVideoFormat_NV12)
+            {
+                FillBlackNv12(destination, width, height);
+            }
+            else
+            {
+                FillBlackRgb32(destination, width, height);
+            }
 
             // 3) Try a single non-blocking read from the publisher's shared frame
             //    bridge. ReadFrame uses a 50 ms mutex timeout so it never stalls the
@@ -1714,21 +1893,71 @@ namespace surevideotool::virtualcam
                 && sharedConfig.stride >= (width * 4)
                 && bgra.size() >= static_cast<size_t>(sharedConfig.stride) * sharedConfig.height;
 
+            auto writeBgraFrame = [&](const uint8_t* frameData, const MediaConfig& frameConfig) -> bool
+            {
+                if (frameData == nullptr
+                    || frameConfig.width != width
+                    || frameConfig.height != height
+                    || frameConfig.stride < (width * 4))
+                {
+                    return false;
+                }
+
+                return subtype == MFVideoFormat_YUY2
+                    ? WriteBgraToYuy2Buffer(
+                        frameData,
+                        frameConfig.stride,
+                        destination,
+                        static_cast<size_t>(maxLength),
+                        width,
+                        height)
+                    : (subtype == MFVideoFormat_NV12
+                        ? WriteBgraToNv12Buffer(
+                            frameData,
+                            frameConfig.stride,
+                            destination,
+                            static_cast<size_t>(maxLength),
+                            width,
+                            height)
+                        : WriteBgraToRgb32Buffer(
+                            frameData,
+                            frameConfig.stride,
+                            destination,
+                            static_cast<size_t>(maxLength),
+                            width,
+                            height));
+            };
+
             bool wroteRealFrame = false;
+            bool wroteCachedFrame = false;
             if (hasFreshBridgeFrame)
             {
-                wroteRealFrame = WriteBgraToNv12Buffer(
-                    bgra.data(),
-                    sharedConfig.stride,
-                    destination,
-                    static_cast<size_t>(maxLength),
-                    width,
-                    height);
+                cachedBgraFrame_ = std::move(bgra);
+                cachedBgraConfig_ = sharedConfig;
+                hasCachedFrame_ = true;
+                wroteRealFrame = writeBgraFrame(cachedBgraFrame_.data(), cachedBgraConfig_);
+            }
+
+            if (!wroteRealFrame && hasCachedFrame_)
+            {
+                wroteCachedFrame = writeBgraFrame(cachedBgraFrame_.data(), cachedBgraConfig_);
+                wroteRealFrame = wroteCachedFrame;
             }
 
             // 4) Per-frame heartbeat for diagnostics (single byte tweak; overwrites a
             //    couple of luma samples).
-            ApplyNv12Heartbeat(destination, outputBytes, width, height, sampleFrameIndex_);
+            if (subtype == MFVideoFormat_YUY2)
+            {
+                ApplyYuy2Heartbeat(destination, outputBytes, sampleFrameIndex_);
+            }
+            else if (subtype == MFVideoFormat_NV12)
+            {
+                ApplyNv12Heartbeat(destination, outputBytes, width, height, sampleFrameIndex_);
+            }
+            else
+            {
+                ApplyRgb32Heartbeat(destination, outputBytes, sampleFrameIndex_);
+            }
 
             // 5) Throttled diagnostic log (every 90 frames or when state changes).
             if ((sampleFrameIndex_ % 90) == 0 || FAILED(readHr) || !hasFreshBridgeFrame || !wroteRealFrame)
@@ -1737,10 +1966,11 @@ namespace surevideotool::virtualcam
                 if (SUCCEEDED(StringCchPrintfW(
                         logLine,
                         ARRAYSIZE(logLine),
-                        L"CreateNextSample hr=0x%08X fresh=%u real=%u frameCounter=%llu sampleIndex=%llu shared=%ux%u stride=%u bgraBytes=%zu out=%zu",
+                        L"CreateNextSample hr=0x%08X fresh=%u real=%u cached=%u frameCounter=%llu sampleIndex=%llu shared=%ux%u stride=%u bgraBytes=%zu out=%zu",
                         static_cast<unsigned int>(readHr),
                         hasFreshBridgeFrame ? 1u : 0u,
                         wroteRealFrame ? 1u : 0u,
+                        wroteCachedFrame ? 1u : 0u,
                         static_cast<unsigned long long>(frameCounter),
                         static_cast<unsigned long long>(sampleFrameIndex_),
                         sharedConfig.width,
@@ -1760,13 +1990,13 @@ namespace surevideotool::virtualcam
             RETURN_IF_FAILED(MFCreateSample(&value));
             RETURN_IF_FAILED(value->AddBuffer(buffer.Get()));
 
-            // 6) Counter-based monotonic timestamps starting at 0 each Start(). The
-            //    FrameServer's presentation clock starts at 0 from Start, so giving it
-            //    an absolute device time can stall the pipeline ("sample is in the
-            //    future / past"). N * frameDuration is the canonical pattern used by
-            //    Microsoft's SimpleMediaSource sample.
+            // 6) FrameServer's virtual-camera path expects device-clock sample times.
+            //    Microsoft's SimpleMediaSource sample uses MFGetSystemTime() here; a
+            //    zero-based stream time works for direct readers but can leave the
+            //    FrameServer pipeline requesting frames forever without completing
+            //    activation.
             const LONGLONG duration = (kHundredsOfNsPerSecond * fpsDen) / fpsNum;
-            const LONGLONG sampleTime = static_cast<LONGLONG>(sampleFrameIndex_) * duration;
+            const LONGLONG sampleTime = MFGetSystemTime();
             ++sampleFrameIndex_;
 
             RETURN_IF_FAILED(value->SetSampleTime(sampleTime));
@@ -1789,8 +2019,11 @@ namespace surevideotool::virtualcam
         {
             std::lock_guard<std::mutex> guard(lock_);
 
+            AppendMfVirtualCameraLogLine(L"[Source::Initialize] called.");
+
             if (initialized_)
             {
+                AppendMfVirtualCameraLogLine(L"[Source::Initialize] already initialized.");
                 return MF_E_ALREADY_INITIALIZED;
             }
 
@@ -1801,25 +2034,96 @@ namespace surevideotool::virtualcam
                 mediaConfig_ = detected;
             }
 
-            RETURN_IF_FAILED(MFCreateEventQueue(&eventQueue_));
-            RETURN_IF_FAILED(CreateSourceAttributes(activateAttributes));
+            HRESULT hr = MFCreateEventQueue(&eventQueue_);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] MFCreateEventQueue failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
+
+            hr = CreateSourceAttributes(activateAttributes);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] CreateSourceAttributes failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
 
             stream_ = Make<SurevideotoolMediaStream>();
             if (!stream_)
             {
+                AppendMfVirtualCameraLogLine(L"[Source::Initialize] stream allocation failed.");
                 return E_OUTOFMEMORY;
             }
 
-            RETURN_IF_FAILED(stream_->Initialize(this, mediaConfig_));
+            hr = stream_->Initialize(this, mediaConfig_);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] stream initialization failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
 
             ComPtr<IMFStreamDescriptor> streamDescriptor;
-            RETURN_IF_FAILED(stream_->GetStreamDescriptor(&streamDescriptor));
+            hr = stream_->GetStreamDescriptor(&streamDescriptor);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] GetStreamDescriptor failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
+
             IMFStreamDescriptor* descriptors[] = { streamDescriptor.Get() };
-            RETURN_IF_FAILED(MFCreatePresentationDescriptor(ARRAYSIZE(descriptors), descriptors, &presentationDescriptor_));
-            RETURN_IF_FAILED(presentationDescriptor_->SelectStream(0));
+            hr = MFCreatePresentationDescriptor(ARRAYSIZE(descriptors), descriptors, &presentationDescriptor_);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] MFCreatePresentationDescriptor failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
+
+            hr = presentationDescriptor_->SelectStream(0);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::Initialize] SelectStream failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
 
             state_ = SourceState::Stopped;
             initialized_ = true;
+            AppendMfVirtualCameraLogLine(L"[Source::Initialize] completed.");
             return S_OK;
         }
 
@@ -1837,17 +2141,46 @@ namespace surevideotool::virtualcam
 
             ComPtr<IMFSensorProfileCollection> profileCollection;
             ComPtr<IMFSensorProfile> profile;
-            RETURN_IF_FAILED(MFCreateSensorProfileCollection(&profileCollection));
-            RETURN_IF_FAILED(MFCreateSensorProfile(KSCAMERAPROFILE_Legacy, 0, nullptr, &profile));
-            RETURN_IF_FAILED(profile->AddProfileFilter(kStreamId, L"((RES==;FRT<=30,1;SUT==))"));
-            RETURN_IF_FAILED(profileCollection->AddProfile(profile.Get()));
-            RETURN_IF_FAILED(sourceAttributes_->SetUnknown(MF_DEVICEMFT_SENSORPROFILE_COLLECTION, profileCollection.Get()));
+
+            HRESULT profileHr = MFCreateSensorProfileCollection(&profileCollection);
+            if (SUCCEEDED(profileHr))
+            {
+                profileHr = MFCreateSensorProfile(KSCAMERAPROFILE_Legacy, 0, nullptr, &profile);
+            }
+
+            if (SUCCEEDED(profileHr))
+            {
+                profileHr = profile->AddProfileFilter(kStreamId, L"((RES==;FRT<=30,1;SUT==))");
+            }
+
+            if (SUCCEEDED(profileHr))
+            {
+                profileHr = profileCollection->AddProfile(profile.Get());
+            }
+
+            if (SUCCEEDED(profileHr))
+            {
+                profileHr = sourceAttributes_->SetUnknown(MF_DEVICEMFT_SENSORPROFILE_COLLECTION, profileCollection.Get());
+            }
+
+            if (FAILED(profileHr))
+            {
+                wchar_t message[192]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[Source::CreateSourceAttributes] Sensor profile setup failed hr=0x%08X. Continuing without sensor profiles.",
+                    profileHr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+            }
 
             return S_OK;
         }
 
         IFACEMETHODIMP SurevideotoolMediaSource::QueryInterface(REFIID interfaceId, void** object)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::QueryInterface] called.");
+
             if (object == nullptr)
             {
                 return E_POINTER;
@@ -1921,15 +2254,45 @@ namespace surevideotool::virtualcam
 
             *object = nullptr;
 
+            AppendMfVirtualCameraLogLine(L"[ActivateObject] called.");
+
             auto source = Make<SurevideotoolMediaSource>();
             if (!source)
             {
+                AppendMfVirtualCameraLogLine(L"[ActivateObject] source allocation failed.");
                 return E_OUTOFMEMORY;
             }
 
-            RETURN_IF_FAILED(source->Initialize(attributes_.Get()));
+            HRESULT hr = source->Initialize(attributes_.Get());
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[ActivateObject] source initialization failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+
+                return hr;
+            }
+
             activeSource_ = source;
-            return source->QueryInterface(interfaceId, object);
+            hr = source->QueryInterface(interfaceId, object);
+            if (FAILED(hr))
+            {
+                wchar_t message[160]{};
+                if (SUCCEEDED(StringCchPrintfW(message, ARRAYSIZE(message),
+                    L"[ActivateObject] QueryInterface failed hr=0x%08X.", hr)))
+                {
+                    AppendMfVirtualCameraLogLine(message);
+                }
+            }
+            else
+            {
+                AppendMfVirtualCameraLogLine(L"[ActivateObject] completed.");
+            }
+
+            return hr;
         }
 
         IFACEMETHODIMP SurevideotoolMediaSourceActivate::ShutdownObject()
@@ -2101,6 +2464,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::BeginGetEvent(IMFAsyncCallback* callback, IUnknown* state)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::BeginGetEvent] called.");
+
             std::lock_guard<std::mutex> guard(lock_);
             if (state_ == SourceState::Shutdown)
             {
@@ -2112,6 +2477,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::EndGetEvent(IMFAsyncResult* result, IMFMediaEvent** eventValue)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::EndGetEvent] called.");
+
             std::lock_guard<std::mutex> guard(lock_);
             if (state_ == SourceState::Shutdown)
             {
@@ -2123,17 +2490,26 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::GetEvent(DWORD flags, IMFMediaEvent** eventValue)
         {
-            std::lock_guard<std::mutex> guard(lock_);
-            if (state_ == SourceState::Shutdown)
+            AppendMfVirtualCameraLogLine(L"[Source::GetEvent] called.");
+
+            ComPtr<IMFMediaEventQueue> eventQueue;
             {
-                return MF_E_SHUTDOWN;
+                std::lock_guard<std::mutex> guard(lock_);
+                if (state_ == SourceState::Shutdown)
+                {
+                    return MF_E_SHUTDOWN;
+                }
+
+                eventQueue = eventQueue_;
             }
 
-            return eventQueue_->GetEvent(flags, eventValue);
+            return eventQueue ? eventQueue->GetEvent(flags, eventValue) : MF_E_SHUTDOWN;
         }
 
         IFACEMETHODIMP SurevideotoolMediaSource::QueueEvent(MediaEventType eventType, REFGUID extendedType, HRESULT status, const PROPVARIANT* value)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::QueueEvent] called.");
+
             std::lock_guard<std::mutex> guard(lock_);
             if (state_ == SourceState::Shutdown)
             {
@@ -2145,6 +2521,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::GetCharacteristics(DWORD* characteristics)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::GetCharacteristics] called.");
+
             if (characteristics == nullptr)
             {
                 return E_POINTER;
@@ -2162,6 +2540,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::CreatePresentationDescriptor(IMFPresentationDescriptor** presentationDescriptor)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::CreatePresentationDescriptor] called.");
+
             if (presentationDescriptor == nullptr)
             {
                 return E_POINTER;
@@ -2311,6 +2691,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::GetSourceAttributes(IMFAttributes** attributes)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::GetSourceAttributes] called.");
+
             if (attributes == nullptr)
             {
                 return E_POINTER;
@@ -2329,6 +2711,8 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::GetStreamAttributes(DWORD streamIdentifier, IMFAttributes** attributes)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::GetStreamAttributes] called.");
+
             if (attributes == nullptr)
             {
                 return E_POINTER;
@@ -2352,28 +2736,27 @@ namespace surevideotool::virtualcam
 
         IFACEMETHODIMP SurevideotoolMediaSource::SetD3DManager(IUnknown* /*manager*/)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::SetD3DManager] called.");
             return S_OK;
         }
 
-        IFACEMETHODIMP SurevideotoolMediaSource::GetService(REFGUID /*serviceGuid*/, REFIID interfaceId, void** object)
+        IFACEMETHODIMP SurevideotoolMediaSource::GetService(REFGUID /*serviceGuid*/, REFIID /*interfaceId*/, void** object)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::GetService] called.");
+
             if (object == nullptr)
             {
                 return E_POINTER;
             }
 
             *object = nullptr;
-
-            if (interfaceId == __uuidof(IKsControl))
-            {
-                return QueryInterface(interfaceId, object);
-            }
-
             return MF_E_UNSUPPORTED_SERVICE;
         }
 
         IFACEMETHODIMP SurevideotoolMediaSource::KsProperty(PKSPROPERTY /*property*/, ULONG /*propertyLength*/, void* /*propertyData*/, ULONG /*dataLength*/, ULONG* bytesReturned)
         {
+            AppendMfVirtualCameraLogLine(L"[Source::KsProperty] called.");
+
             if (bytesReturned != nullptr)
             {
                 *bytesReturned = 0;
@@ -2437,6 +2820,8 @@ namespace surevideotool::virtualcam
 
     HRESULT CreateMfClassFactory(REFCLSID classId, REFIID interfaceId, void** object) noexcept
     {
+        AppendMfVirtualCameraLogLine(L"[CreateMfClassFactory] called.");
+
         if (object == nullptr)
         {
             return E_POINTER;

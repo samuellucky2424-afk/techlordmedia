@@ -1,11 +1,13 @@
 // @ts-nocheck
 import { supabaseAdmin, supabaseAdminConfigError } from './supabase.js';
+import { findLatestSuccessfulPaymentPointWebhook } from '../../shared/paymentpoint-webhook-cache.js';
+import { logError, logPayment } from '../../shared/server-logger.js';
 import {
-  applyVerifiedFlutterwavePayment,
-  extractFlutterwavePaymentContext,
-  validateFlutterwaveTransaction,
-  verifyFlutterwaveTransaction
-} from './flutterwave-payment.js';
+  applyVerifiedPayment,
+  getProcessedPaymentStatus,
+  resolvePaymentPointUserId,
+  validatePaymentPointNotification,
+} from '../../shared/paymentpoint-payment.js';
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -16,42 +18,111 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!supabaseAdmin) return res.status(503).json({ status: 'failed', message: supabaseAdminConfigError });
 
-  const { reference, transactionId, userId, credits, priceUSD } = req.body;
-  if (!reference || !transactionId || !userId) {
-    return res.status(400).json({ status: 'failed', message: 'Missing reference, transactionId, or userId' });
+  const {
+    reference,
+    transactionId,
+    userId,
+    customerEmail,
+    customerId,
+    receiverAccountNumber,
+    amountNGN,
+    credits,
+    createdAfter,
+  } = req.body || {};
+  const lookupReference = reference || transactionId;
+
+  if ((!lookupReference && !customerEmail && !customerId) || (!userId && !customerEmail)) {
+    return res.status(400).json({
+      status: 'failed',
+      message: 'Missing PaymentPoint verification data',
+    });
   }
 
   try {
-    const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY;
-    if (!flutterwaveSecretKey) {
-      return res.status(500).json({ status: 'failed', message: 'Missing Flutterwave Secret Key' });
+    const userResolution = await resolvePaymentPointUserId(
+      supabaseAdmin,
+      { email: customerEmail, customer_id: customerId },
+      userId,
+    );
+
+    if (!userResolution.userId) {
+      return res.status(400).json({
+        status: 'failed',
+        message: 'Unable to resolve the PaymentPoint customer to a user',
+      });
     }
 
-    const verification = await verifyFlutterwaveTransaction(transactionId, flutterwaveSecretKey);
+    let result;
 
-    if (!verification.isVerified) {
-      return res.status(400).json({ status: 'failed', message: verification.data?.message || 'Payment verification failed' });
+    if (lookupReference) {
+      result = await getProcessedPaymentStatus(supabaseAdmin, {
+        reference: lookupReference,
+        userId: userResolution.userId,
+      });
+    } else {
+      const matchedWebhook = findLatestSuccessfulPaymentPointWebhook({
+        customerEmail,
+        customerId,
+        receiverAccountNumber,
+        amountPaidNGN: amountNGN,
+        createdAfter,
+      });
+
+      if (!matchedWebhook?.payload) {
+        result = {
+          status: 'pending',
+          message: 'Waiting for PaymentPoint transfer confirmation',
+        };
+      } else {
+        const validation = validatePaymentPointNotification(matchedWebhook.payload);
+        if (!validation.ok) {
+          result = {
+            status: 'pending',
+            message: validation.message || 'Waiting for PaymentPoint transfer confirmation',
+          };
+        } else {
+          result = await applyVerifiedPayment(supabaseAdmin, {
+            reference: validation.context.reference,
+            userId: userResolution.userId,
+            credits: credits || validation.context.credits,
+            amountPaidNGN: validation.context.amountPaidNGN,
+            description: validation.context.description || `PaymentPoint payment from ${customerEmail || 'customer'}`,
+            provider: 'PaymentPoint',
+          });
+
+          result = {
+            ...result,
+            transactionId: validation.context.transactionId,
+            verifiedFrom: 'webhook-cache',
+          };
+        }
+      }
     }
 
-    const paymentContext = extractFlutterwavePaymentContext(verification.transaction, { reference, userId, credits, priceUSD });
-    if (!paymentContext.userId) {
-      return res.status(400).json({ status: 'failed', message: 'Missing payment userId metadata' });
-    }
-
-    const validation = validateFlutterwaveTransaction(verification.transaction, paymentContext.reference);
-    if (!validation.ok) {
-      return res.status(400).json({ status: 'failed', message: validation.message });
-    }
-
-    const result = await applyVerifiedFlutterwavePayment({
-      reference: validation.reference,
-      userId: paymentContext.userId,
-      credits: paymentContext.credits,
-      amountPaidNGN: validation.amountPaidNGN
+    logPayment({
+      event: 'paymentpoint-verify-payment',
+      scope: 'app-api',
+      reference: lookupReference,
+      userId: userResolution.userId,
+      customerEmail,
+      receiverAccountNumber,
+      amountNGN,
+      result,
     });
 
-    res.json({ ...result, data: verification.transaction });
+    if (result.status === 'pending') {
+      return res.status(202).json(result);
+    }
+
+    return res.json(result);
   } catch (error) {
-    res.status(500).json({ status: 'failed', message: 'Internal server error' });
+    console.error('[api/verify-payment] unexpected error:', error);
+    logError('paymentpoint-verify-payment-unexpected-error', error, {
+      scope: 'app-api',
+      reference: lookupReference,
+      customerEmail,
+      userId,
+    });
+    return res.status(500).json({ status: 'failed', message: 'Internal server error' });
   }
 }

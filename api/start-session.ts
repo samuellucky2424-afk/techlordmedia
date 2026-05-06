@@ -23,6 +23,28 @@ function getBillableSeconds(startTime) {
   return Math.min(Math.max(elapsedSeconds, 0), MAX_BILLABLE_SECONDS);
 }
 
+function buildOrphanSessionChargePlan(sessions, availableCredits) {
+  let remainingCredits = Math.max(0, normalizeCredits(availableCredits));
+
+  const plannedSessions = sessions.map((session) => {
+    const billableSeconds = getBillableSeconds(session.start_time);
+    const requestedCredits = billableSeconds * CREDITS_PER_SECOND;
+    const chargedCredits = Math.min(remainingCredits, requestedCredits);
+    remainingCredits -= chargedCredits;
+
+    return {
+      id: session.id,
+      billableSeconds,
+      chargedCredits,
+    };
+  });
+
+  return {
+    plannedSessions,
+    remainingCredits,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -46,7 +68,12 @@ export default async function handler(req, res) {
 
     // Fetch orphaned sessions and wallet in parallel
     const [activeSessionsResult, walletResult] = await Promise.all([
-      supabaseAdmin.from('sessions').select('id, start_time').eq('user_id', userId).eq('status', 'active'),
+      supabaseAdmin
+        .from('sessions')
+        .select('id, start_time')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('start_time', { ascending: true }),
       supabaseAdmin.from('wallets').select('credits').eq('user_id', userId).maybeSingle(),
     ]);
 
@@ -63,24 +90,30 @@ export default async function handler(req, res) {
     const existingActiveSessions = activeSessionsResult.data ?? [];
     const walletNow = walletResult.data;
 
-    // Bill and close all orphaned sessions in one parallel batch
+    // Bill and close all orphaned sessions in one parallel batch.
+    // Charge allocation is capped by current wallet credits so each session record
+    // reflects the actual deducted amount.
     let runningCredits = normalizeCredits(walletNow?.credits);
     if (existingActiveSessions && existingActiveSessions.length > 0) {
-      let totalDeduction = 0;
-      const sessionCalcs = existingActiveSessions.map(session => {
-        const billableSeconds = getBillableSeconds(session.start_time);
-        const creditsToDeduct = billableSeconds * CREDITS_PER_SECOND;
-        totalDeduction += creditsToDeduct;
-        return { id: session.id, billableSeconds, creditsToDeduct };
-      });
-      const actualDeduction = Math.min(runningCredits, totalDeduction);
-      runningCredits = runningCredits - actualDeduction;
+      const { plannedSessions, remainingCredits } = buildOrphanSessionChargePlan(
+        existingActiveSessions,
+        runningCredits,
+      );
+      const actualDeduction = runningCredits - remainingCredits;
+      runningCredits = remainingCredits;
+
       // Close all sessions + update wallet in one parallel round-trip
       const cleanupResults = await Promise.all([
-        ...sessionCalcs.map(s =>
+        ...plannedSessions.map((sessionPlan) =>
           supabaseAdmin.from('sessions')
-            .update({ end_time: new Date(), status: 'ended', seconds_used: s.billableSeconds, cost: s.creditsToDeduct })
-            .eq('id', s.id).eq('status', 'active'),
+            .update({
+              end_time: new Date(),
+              status: 'ended',
+              seconds_used: sessionPlan.billableSeconds,
+              cost: sessionPlan.chargedCredits,
+            })
+            .eq('id', sessionPlan.id)
+            .eq('status', 'active'),
         ),
         actualDeduction > 0
           ? supabaseAdmin.from('wallets').update({ credits: runningCredits }).eq('user_id', userId)
@@ -100,9 +133,7 @@ export default async function handler(req, res) {
       return res.json({ allowed: false, error: 'Insufficient credits' });
     }
 
-    // Declare maxSeconds BEFORE the insert so it is stored correctly in the DB.
-    // (Previously it was declared after the insert, causing max_seconds = NULL
-    //  which made closeActiveSession fall back to wiping the entire balance.)
+    // Expose a deterministic time budget to the client based on current credits.
     const maxSeconds = Math.floor(userCredits / CREDITS_PER_SECOND);
 
     const { data: newSession, error: sessionError } = await supabaseAdmin

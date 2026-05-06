@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from 'child_process';
 import { once } from 'events';
 
-import { app, BrowserWindow, systemPreferences, ipcMain, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, systemPreferences, ipcMain, Menu, nativeImage, powerSaveBlocker } from 'electron';
+import crypto from 'crypto';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -17,6 +19,11 @@ const SUREVIDEOTOOL_CAM_WINDOW_WIDTH = 640;
 const SUREVIDEOTOOL_CAM_WINDOW_HEIGHT = 360;
 const VIRTUAL_CAM_PUBLISHER_EXE = 'surevideotool_cam_pipe_publisher.exe';
 const VIRTUAL_CAM_REGISTRAR_EXE = 'surevideotool_cam_registrar.exe';
+const WINDOWS_MF_VIRTUAL_CAMERA_MIN_BUILD = 22000;
+const VIRTUAL_CAM_STAGED_DLLS = [
+  { fileName: 'SurevideotoolVirtualCameraMF.dll', role: 'mf' },
+  { fileName: 'SurevideotoolVirtualCamera.dll', role: 'directshow' }
+];
 const VIRTUAL_CAM_REGISTRAR_TIMEOUT_MS = 120000;
 const VIRTUAL_CAM_WINDOWS_PROBE_TIMEOUT_MS = 15000;
 const VIRTUAL_CAM_FRIENDLY_NAME = 'Surevideotool G1';
@@ -32,8 +39,13 @@ const VIRTUAL_CAM_PIPE_HEADER_BYTES = 40;
 const WINDOWS_FILETIME_EPOCH_OFFSET = 116444736000000000n;
 const VIRTUAL_CAM_STATS_INTERVAL_MS = 5000;
 const VIRTUAL_CAM_BLACK_SAMPLE_PIXELS = 512;
+const VIRTUAL_CAM_LOG_FILE_NAME = 'virtual-camera.log';
+const VIRTUAL_CAM_STALE_RENDERER_FRAME_MS = 2000;
 
 app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 function configureChromiumCachePaths() {
   try {
@@ -58,6 +70,7 @@ let desktopUpdater = null;
 let surevideotoolCamWindow = null;
 let surevideotoolCamPublisher = null;
 let virtualCameraEnabled = process.platform === 'win32';
+let virtualCameraPowerSaveBlockerId = null;
 
 function formatErrorMessage(error) {
   if (error instanceof Error) {
@@ -69,6 +82,58 @@ function formatErrorMessage(error) {
 
 function getTimestampHundredsOfNs() {
   return (BigInt(Date.now()) * 10000n) + WINDOWS_FILETIME_EPOCH_OFFSET;
+}
+
+function getVirtualCameraLogPath() {
+  return path.join(app.getPath('userData'), 'logs', VIRTUAL_CAM_LOG_FILE_NAME);
+}
+
+function appendVirtualCameraLogLine(message) {
+  if (!message) {
+    return;
+  }
+
+  try {
+    const logPath = getVirtualCameraLogPath();
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8');
+  } catch {
+    // Logging must never break the app.
+  }
+}
+
+function formatVirtualCameraLogDetail(detail) {
+  if (detail === undefined || detail === null) {
+    return '';
+  }
+
+  if (detail instanceof Error) {
+    return `${detail.name}: ${formatErrorMessage(detail)}`;
+  }
+
+  if (typeof detail === 'string') {
+    return detail;
+  }
+
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return String(detail);
+  }
+}
+
+function logVirtualCameraEvent(level, message, detail) {
+  const detailText = formatVirtualCameraLogDetail(detail);
+  const line = detailText ? `[${level}] ${message} | ${detailText}` : `[${level}] ${message}`;
+  appendVirtualCameraLogLine(line);
+
+  if (level === 'error') {
+    console.error(message, detail ?? '');
+  } else if (level === 'warn') {
+    console.warn(message, detail ?? '');
+  } else {
+    console.info(message, detail ?? '');
+  }
 }
 
 function logVirtualCameraStats(controller, reason) {
@@ -83,9 +148,47 @@ function logVirtualCameraStats(controller, reason) {
     `Surevideotool cam bridge stats (${reason}): frames=${controller.stats.framesSent} fps=${fps.toFixed(2)} ` +
     `rendererFrames=${controller.stats.rendererFramesReceived} captureFallbacks=${controller.stats.captureFallbacks} ` +
     `captureFailures=${controller.stats.captureFailures} publishFailures=${controller.stats.publishFailures} ` +
-    `blackFrames=${controller.stats.blackFrames} size=${VIRTUAL_CAM_FRAME_WIDTH}x${VIRTUAL_CAM_FRAME_HEIGHT} format=BGRA32`
+    `blackFrames=${controller.stats.blackFrames} staleCachedFrames=${controller.stats.staleCachedFrames ?? 0} ` +
+    `size=${VIRTUAL_CAM_FRAME_WIDTH}x${VIRTUAL_CAM_FRAME_HEIGHT} format=BGRA32`
+  );
+  appendVirtualCameraLogLine(
+    `[info] bridge stats (${reason}) frames=${controller.stats.framesSent} fps=${fps.toFixed(2)} ` +
+    `rendererFrames=${controller.stats.rendererFramesReceived} captureFallbacks=${controller.stats.captureFallbacks} ` +
+    `captureFailures=${controller.stats.captureFailures} publishFailures=${controller.stats.publishFailures} ` +
+    `blackFrames=${controller.stats.blackFrames} staleCachedFrames=${controller.stats.staleCachedFrames ?? 0} ` +
+    `size=${VIRTUAL_CAM_FRAME_WIDTH}x${VIRTUAL_CAM_FRAME_HEIGHT} format=BGRA32`
   );
   controller.stats.lastLogAt = now;
+}
+
+function startVirtualCameraPowerSaveBlocker() {
+  if (virtualCameraPowerSaveBlockerId !== null) {
+    return;
+  }
+
+  try {
+    virtualCameraPowerSaveBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+    appendVirtualCameraLogLine(`[info] powerSaveBlocker started id=${virtualCameraPowerSaveBlockerId}.`);
+  } catch (error) {
+    logVirtualCameraEvent('warn', 'Unable to start virtual camera power save blocker.', error);
+  }
+}
+
+function stopVirtualCameraPowerSaveBlocker() {
+  if (virtualCameraPowerSaveBlockerId === null) {
+    return;
+  }
+
+  try {
+    if (powerSaveBlocker.isStarted(virtualCameraPowerSaveBlockerId)) {
+      powerSaveBlocker.stop(virtualCameraPowerSaveBlockerId);
+    }
+    appendVirtualCameraLogLine(`[info] powerSaveBlocker stopped id=${virtualCameraPowerSaveBlockerId}.`);
+  } catch (error) {
+    logVirtualCameraEvent('warn', 'Unable to stop virtual camera power save blocker.', error);
+  } finally {
+    virtualCameraPowerSaveBlockerId = null;
+  }
 }
 
 function isLikelyBlackFrame(frameBytes) {
@@ -193,6 +296,93 @@ function resolveVirtualCameraRegistrarPath() {
   }
 
   return match;
+}
+
+function getProgramDataSurevideotoolPath() {
+  const programDataPath = process.env.ProgramData || 'C:\\ProgramData';
+  return path.join(programDataPath, 'Surevideotool');
+}
+
+function getWindowsBuildNumber() {
+  if (process.platform !== 'win32') {
+    return 0;
+  }
+
+  const parts = os.release().split('.').map((part) => Number.parseInt(part, 10));
+  return Number.isFinite(parts[2]) ? parts[2] : 0;
+}
+
+function supportsWindowsMediaFoundationVirtualCamera() {
+  return process.platform === 'win32' && getWindowsBuildNumber() >= WINDOWS_MF_VIRTUAL_CAMERA_MIN_BUILD;
+}
+
+function getFileHash(filePath) {
+  try {
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(filePath));
+    return hash.digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function getVirtualCameraStagedBinaryStatus(registrarPath) {
+  const sourceDirectory = path.dirname(registrarPath);
+  const targetDirectory = getProgramDataSurevideotoolPath();
+  const details = [];
+  const supportsMfVirtualCamera = supportsWindowsMediaFoundationVirtualCamera();
+
+  for (const stagedDll of VIRTUAL_CAM_STAGED_DLLS) {
+    const { fileName, role } = stagedDll;
+    const required = role === 'mf' ? supportsMfVirtualCamera : !supportsMfVirtualCamera;
+    const sourcePath = path.join(sourceDirectory, fileName);
+    const targetPath = path.join(targetDirectory, fileName);
+    const sourceExists = fs.existsSync(sourcePath);
+    const targetExists = fs.existsSync(targetPath);
+
+    if (!sourceExists || !targetExists) {
+      details.push({
+        fileName,
+        sourcePath,
+        targetPath,
+        required,
+        sourceExists,
+        targetExists,
+        matches: false,
+        reason: !sourceExists ? 'missing-source' : 'missing-staged-copy'
+      });
+      continue;
+    }
+
+    const sourceHash = getFileHash(sourcePath);
+    const targetHash = getFileHash(targetPath);
+    details.push({
+      fileName,
+      sourcePath,
+      targetPath,
+      required,
+      sourceHash,
+      targetHash,
+      matches: Boolean(sourceHash && targetHash && sourceHash === targetHash),
+      reason: sourceHash === targetHash ? 'match' : 'hash-mismatch'
+    });
+  }
+
+  const mismatches = details.filter((item) => !item.matches);
+  const blockingMismatches = mismatches.filter((item) => item.required);
+  const optionalMismatches = mismatches.filter((item) => !item.required);
+  return {
+    needsRepair: blockingMismatches.length > 0,
+    details,
+    mismatches,
+    blockingMismatches,
+    legacyMismatches: optionalMismatches,
+    message: blockingMismatches.length > 0
+      ? `Required virtual camera files are outdated or missing: ${blockingMismatches.map((item) => item.fileName).join(', ')}`
+      : optionalMismatches.length > 0
+        ? `Optional virtual camera files are outdated or missing: ${optionalMismatches.map((item) => item.fileName).join(', ')}`
+      : 'Staged virtual camera files match bundled files.'
+  };
 }
 
 function runVirtualCameraRegistrar(registrarPath, args) {
@@ -305,29 +495,46 @@ function ensureVirtualCameraRegistration({ attemptRepair = false } = {}) {
   }
 
   const probeResult = runVirtualCameraRegistrar(registrarPath, ['probe']);
-  if (probeResult.ok) {
-    // Probe success means the driver and MF virtual camera are correctly installed.
+  const binaryStatus = getVirtualCameraStagedBinaryStatus(registrarPath);
+  const supportsMfVirtualCamera = supportsWindowsMediaFoundationVirtualCamera();
+  if (binaryStatus.needsRepair) {
+    console.warn(`Surevideotool virtual camera staged files need repair: ${binaryStatus.message}`);
+    appendVirtualCameraLogLine(`[warn] ${binaryStatus.message}`);
+  }
+
+  if (probeResult.ok && !binaryStatus.needsRepair) {
+    if (!supportsMfVirtualCamera) {
+      appendVirtualCameraLogLine(
+        `[info] Windows build ${getWindowsBuildNumber()} does not support Media Foundation virtual cameras; using DirectShow fallback registration.`
+      );
+    }
+
+    // Probe success means the required camera path for this Windows build is installed.
     // PnP visibility is an unreliable secondary check and must never trigger a repair
-    // (repair requires elevation and will always fail in a normal user session).
+    // (repair requires elevation and can be disruptive in a normal user session).
     const visibilityResult = probeWindowsCameraVisibility();
     if (!visibilityResult.visible) {
       console.warn('Surevideotool virtual camera probe succeeded but Windows PnP visibility check did not find the device. Continuing anyway.');
     }
     return {
       success: true,
-      message: 'Surevideotool virtual camera registration is healthy.',
+      message: supportsMfVirtualCamera
+        ? 'Surevideotool virtual camera registration is healthy.'
+        : 'Surevideotool DirectShow virtual camera fallback is healthy on this Windows build.',
       deviceVisible: visibilityResult.visible
     };
   } else if (!attemptRepair) {
     return {
       success: false,
-      error: 'Surevideotool virtual camera is not registered. Run the installer or surevideotool_cam_registrar install.',
+      error: probeResult.ok
+        ? binaryStatus.message
+        : 'Surevideotool virtual camera is not registered. Run the installer or surevideotool_cam_registrar install.',
       deviceVisible: false
     };
   }
 
   const repairReason = probeResult.ok
-    ? 'Windows camera visibility check failed'
+    ? binaryStatus.message
     : 'virtual camera probe failed';
   console.warn(`Surevideotool virtual camera ${repairReason}. Attempting automatic registration repair...`);
 
@@ -349,6 +556,18 @@ function ensureVirtualCameraRegistration({ attemptRepair = false } = {}) {
     return {
       success: false,
       error: 'Surevideotool virtual camera still failed probe after repair. Please reinstall Surevideotool.',
+      deviceVisible: false
+    };
+  }
+
+  const repairedBinaryStatus = getVirtualCameraStagedBinaryStatus(registrarPath);
+  if (repairedBinaryStatus.needsRepair) {
+    const message = `${repairedBinaryStatus.message}. Close WhatsApp and any app using the camera, then run Surevideotool again so the updated camera DLL can be staged.`;
+    console.error(message);
+    appendVirtualCameraLogLine(`[error] ${message}`);
+    return {
+      success: false,
+      error: message,
       deviceVisible: false
     };
   }
@@ -492,6 +711,20 @@ async function publishLatestRendererFrame(controller) {
     return;
   }
 
+  if (!nextBufferedFrame) {
+    const rendererFrameAgeMs = Date.now() - (frameToPublish.receivedAt ?? 0);
+    if (rendererFrameAgeMs >= VIRTUAL_CAM_STALE_RENDERER_FRAME_MS) {
+      controller.stats.staleCachedFrames += 1;
+      const lastWarnedAt = controller.lastStaleRendererWarningAt ?? 0;
+      if ((Date.now() - lastWarnedAt) >= VIRTUAL_CAM_STATS_INTERVAL_MS) {
+        controller.lastStaleRendererWarningAt = Date.now();
+        appendVirtualCameraLogLine(
+          `[warn] Publishing cached renderer frame because no fresh renderer frame arrived for ${rendererFrameAgeMs}ms.`
+        );
+      }
+    }
+  }
+
   controller.writeInFlight = true;
 
   try {
@@ -538,10 +771,12 @@ function scheduleSurevideotoolCamPublish(controller, delayMs = 0) {
 
 function stopSurevideotoolCamPublisher() {
   if (!surevideotoolCamPublisher) {
+    appendVirtualCameraLogLine('[info] stopSurevideotoolCamPublisher called with no active publisher.');
     return { success: true, message: 'Virtual camera publisher is already stopped.' };
   }
 
   const controller = surevideotoolCamPublisher;
+  appendVirtualCameraLogLine(`[info] Stopping virtual camera publisher pid=${controller.child?.pid ?? 'unknown'}.`);
   surevideotoolCamPublisher = null;
   controller.stopping = true;
 
@@ -553,6 +788,8 @@ function stopSurevideotoolCamPublisher() {
   if (controller.stats?.framesSent) {
     logVirtualCameraStats(controller, 'stop');
   }
+
+  stopVirtualCameraPowerSaveBlocker();
 
   if (controller.child?.stdin && !controller.child.stdin.destroyed) {
     controller.child.stdin.end();
@@ -591,6 +828,7 @@ function ensureSurevideotoolCamPublisher() {
 
   try {
     const publisherPath = resolveVirtualCameraPublisherPath();
+    appendVirtualCameraLogLine(`[info] Starting virtual camera publisher from ${publisherPath}.`);
     const child = spawn(publisherPath, [], {
       stdio: ['pipe', 'ignore', 'pipe'],
       windowsHide: true
@@ -606,6 +844,7 @@ function ensureSurevideotoolCamPublisher() {
       lastPublishedFrame: null,
       rendererFrameSequence: 0,
       lastPublishedSequence: 0,
+      lastStaleRendererWarningAt: 0,
       stats: {
         startedAt: Date.now(),
         lastLogAt: Date.now(),
@@ -614,7 +853,8 @@ function ensureSurevideotoolCamPublisher() {
         captureFallbacks: 0,
         captureFailures: 0,
         publishFailures: 0,
-        blackFrames: 0
+        blackFrames: 0,
+        staleCachedFrames: 0
       }
     };
 
@@ -622,20 +862,20 @@ function ensureSurevideotoolCamPublisher() {
     child.stderr?.on('data', (chunk) => {
       const message = chunk.toString().trim();
       if (message) {
-        console.error(`Surevideotool cam publisher: ${message}`);
+        logVirtualCameraEvent('error', 'Surevideotool cam publisher stderr', message);
       }
     });
 
     child.stdin?.on('error', (error) => {
       if (!controller.stopping) {
-        console.error('Virtual camera publisher stdin failed:', error);
+        logVirtualCameraEvent('error', 'Virtual camera publisher stdin failed.', error);
         stopSurevideotoolCamPublisher();
       }
     });
 
     child.on('error', (error) => {
       if (!controller.stopping) {
-        console.error('Failed to launch the virtual camera publisher:', error);
+        logVirtualCameraEvent('error', 'Failed to launch the virtual camera publisher.', error);
         stopSurevideotoolCamPublisher();
       }
     });
@@ -646,16 +886,20 @@ function ensureSurevideotoolCamPublisher() {
       }
 
       if (!controller.stopping) {
-        console.error(`Virtual camera publisher exited unexpectedly with code ${code ?? 'null'} and signal ${signal ?? 'null'}.`);
+        logVirtualCameraEvent('error', 'Virtual camera publisher exited unexpectedly.', { code: code ?? null, signal: signal ?? null });
+      } else {
+        appendVirtualCameraLogLine(`[info] Virtual camera publisher exited during shutdown code=${code ?? 'null'} signal=${signal ?? 'null'}.`);
       }
     });
 
     surevideotoolCamPublisher = controller;
+    startVirtualCameraPowerSaveBlocker();
+    appendVirtualCameraLogLine(`[info] Virtual camera publisher started pid=${child.pid ?? 'unknown'}.`);
     scheduleSurevideotoolCamPublish(controller);
 
     return { success: true, message: `Publishing Surevideotool cam output via ${publisherPath}.` };
   } catch (error) {
-    console.error('Unable to start the virtual camera publisher:', error);
+    logVirtualCameraEvent('error', 'Unable to start the virtual camera publisher.', error);
     return { success: false, error: formatErrorMessage(error) };
   }
 }
@@ -830,6 +1074,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.js')
     }
   });
@@ -886,9 +1131,11 @@ function createWindow() {
 function registerVirtualCameraHandlers() {
   ipcMain.handle('virtual-camera:start', async () => {
     virtualCameraEnabled = true;
+    appendVirtualCameraLogLine('[info] virtual-camera:start invoked.');
 
     const registrationResult = ensureVirtualCameraRegistration({ attemptRepair: true });
     if (!registrationResult.success) {
+      logVirtualCameraEvent('error', 'Virtual camera registration failed during start.', registrationResult);
       return registrationResult;
     }
 
@@ -897,6 +1144,7 @@ function registerVirtualCameraHandlers() {
 
   ipcMain.handle('virtual-camera:stop', async () => {
     virtualCameraEnabled = false;
+    appendVirtualCameraLogLine('[info] virtual-camera:stop invoked.');
     return stopSurevideotoolCamPublisher();
   });
 
@@ -906,11 +1154,27 @@ function registerVirtualCameraHandlers() {
       return;
     }
 
-    if (!surevideotoolCamPublisher || surevideotoolCamPublisher.stopping) {
+    if (!virtualCameraEnabled) {
       return;
     }
 
-    updateRendererFrame(surevideotoolCamPublisher, payload);
+    let controller = surevideotoolCamPublisher;
+    if (!controller || controller.stopping) {
+      appendVirtualCameraLogLine('[warn] Received renderer frame without an active publisher. Attempting recovery.');
+      const startResult = ensureSurevideotoolCamPublisher();
+      if (!startResult.success) {
+        logVirtualCameraEvent('error', 'Unable to recover the virtual camera publisher while frames are arriving.', startResult.error ?? startResult.message ?? 'Unknown error');
+        return;
+      }
+
+      controller = surevideotoolCamPublisher;
+      if (!controller || controller.stopping) {
+        logVirtualCameraEvent('error', 'Virtual camera publisher recovery reported success but no active publisher is available.');
+        return;
+      }
+    }
+
+    updateRendererFrame(controller, payload);
   });
 }
 

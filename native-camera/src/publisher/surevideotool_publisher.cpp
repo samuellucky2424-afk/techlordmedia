@@ -660,6 +660,8 @@ namespace surevideotool
             return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
         }
 
+        bool publishedToAnyBridge = false;
+
         const HRESULT localHr = PublishFrameToEndpoint(
             mutex_,
             event_,
@@ -670,7 +672,37 @@ namespace surevideotool
             timestampHundredsOfNs);
         if (FAILED(localHr))
         {
-            return localHr;
+            LogPublisherDiagnostic("Local bridge publish failed; recreating Local handle set.", localHr);
+            CloseEndpoint(&mapping_, &mutex_, &event_, &view_);
+
+            SecurityDescriptorHolder securityDescriptor;
+            SECURITY_ATTRIBUTES securityAttributes{};
+            const HRESULT securityHr = BuildBridgeSecurityAttributes(&securityAttributes, &securityDescriptor);
+            if (SUCCEEDED(securityHr))
+            {
+                const HRESULT recreateHr = CreateEndpoint(
+                    kLocalBridgeNames,
+                    &securityAttributes,
+                    config_,
+                    mappingByteCount_,
+                    payloadByteCount_,
+                    &mapping_,
+                    &mutex_,
+                    &event_,
+                    &view_);
+                if (FAILED(recreateHr))
+                {
+                    LogPublisherDiagnostic("Local bridge recreate failed.", recreateHr);
+                }
+            }
+            else
+            {
+                LogPublisherDiagnostic("Local bridge security setup failed during recreate.", securityHr);
+            }
+        }
+        else
+        {
+            publishedToAnyBridge = true;
         }
 
         if (mfBridgeView_ != nullptr)
@@ -685,6 +717,10 @@ namespace surevideotool
             {
                 LogPublisherDiagnostic("MF file bridge publish failed; dropping file bridge handle set.", fileBridgePublishHr);
                 CloseFileBackedBridge(&mfBridgeFile_, &mfBridgeMapping_, &mfBridgeView_);
+            }
+            else
+            {
+                publishedToAnyBridge = true;
             }
         }
 
@@ -738,9 +774,13 @@ namespace surevideotool
                 LogPublisherDiagnostic("Global bridge publish failed; dropping Global handle set.", globalHr);
                 CloseEndpoint(&globalMapping_, &globalMutex_, &globalEvent_, &globalView_);
             }
+            else
+            {
+                publishedToAnyBridge = true;
+            }
         }
 
-        return S_OK;
+        return publishedToAnyBridge ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
     }
 
     void Publisher::Close()

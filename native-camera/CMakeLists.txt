@@ -129,7 +129,7 @@ add_executable(surevideotool_cam_registrar
 target_link_libraries(surevideotool_cam_registrar PRIVATE
     mf
     mfplat
-    mfsensorgroup
+    mfreadwrite
     mfuuid
     surevideotool_common
     ole32

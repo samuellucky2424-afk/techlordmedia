@@ -432,14 +432,14 @@ function Dashboard() {
 
   const getSurevideotoolCamGuideMessage = useCallback((hasLiveVideo: boolean) => {
     if (hasLiveVideo) {
-      return 'Capture this window in SplitCam or OBS. If you need a webcam device, route it through SplitCam or OBS Virtual Camera.';
+      return 'Surevideotool is live. In WhatsApp, Zoom, or OBS, select "Surevideotool" as your camera. This window is only a live mirror.';
     }
 
     if (isStreamingRef.current) {
-      return 'Waiting for Surevideotool video. Keep this window selected in SplitCam or OBS Window Capture.';
+      return 'Waiting for Surevideotool video. Keep the session running, then select "Surevideotool" as your camera in WhatsApp, Zoom, or OBS.';
     }
 
-    return 'Start Surevideotool first, then capture this window in SplitCam or OBS. This window is not a standalone webcam device.';
+    return 'Click Start in Surevideotool first. When the session is live, select "Surevideotool" as your camera in WhatsApp, Zoom, or OBS.';
   }, []);
 
   const updateSurevideotoolCamStatus = useCallback((message: string | null) => {
@@ -470,7 +470,7 @@ function Dashboard() {
 
   const stopMainVirtualCamRenderLoop = useCallback(() => {
     if (mainVirtualCamRenderHandleRef.current !== null) {
-      window.cancelAnimationFrame(mainVirtualCamRenderHandleRef.current);
+      window.clearInterval(mainVirtualCamRenderHandleRef.current);
     }
 
     mainVirtualCamRenderHandleRef.current = null;
@@ -594,10 +594,10 @@ function Dashboard() {
         }
       }
 
-      mainVirtualCamRenderHandleRef.current = window.requestAnimationFrame(renderFrame);
     };
 
-    mainVirtualCamRenderHandleRef.current = window.requestAnimationFrame(renderFrame);
+    renderFrame();
+    mainVirtualCamRenderHandleRef.current = window.setInterval(renderFrame, SUREVIDEOTOOL_CAM_FRAME_INTERVAL_MS);
   }, [pushSurevideotoolCamFrame, stopMainVirtualCamRenderLoop]);
 
   const renderSurevideotoolCamWindowShell = useCallback((popup: Window) => {
@@ -689,7 +689,7 @@ function Dashboard() {
             <canvas id="surevideotool-cam-output" width="${SUREVIDEOTOOL_CAM_FRAME_WIDTH}" height="${SUREVIDEOTOOL_CAM_FRAME_HEIGHT}"></canvas>
             <video id="surevideotool-cam-video" autoplay playsinline muted></video>
             <div id="surevideotool-cam-placeholder">
-              Start Surevideotool first, then capture this window in SplitCam or OBS. This window is not a standalone webcam device.
+              Click Start in Surevideotool first. When the session is live, select &quot;Surevideotool&quot; as your camera in WhatsApp, Zoom, or OBS.
             </div>
             <div id="surevideotool-cam-status">Connecting Surevideotool cam...</div>
           </div>
@@ -869,6 +869,34 @@ function Dashboard() {
     frameCallbackHandleRef.current = video.requestVideoFrameCallback(onFrame);
   }, [cancelRemoteFrameMonitor, markRemoteFrameFresh]);
 
+  const bindOutputStream = useCallback((stream: MediaStream, statusMessage: string) => {
+    const video = outputVideoRef.current as VideoElementWithFrameCallbacks | null;
+    if (!video) {
+      return;
+    }
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    video.playbackRate = 1;
+    video.latencyHint = 'interactive';
+
+    const playOutput = () => {
+      void video.play().catch(() => {});
+      markRemoteFrameFresh();
+      startRemoteFrameMonitor();
+    };
+
+    video.onloadedmetadata = playOutput;
+
+    if (video.readyState >= 2) {
+      playOutput();
+    }
+
+    syncSurevideotoolCamStream(stream, statusMessage);
+  }, [markRemoteFrameFresh, startRemoteFrameMonitor, syncSurevideotoolCamStream]);
+
   const stopWebcam = useCallback(() => {
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -882,6 +910,16 @@ function Dashboard() {
 
     if (webcamVideoRef.current) {
       webcamVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const stopVirtualCameraPublisher = useCallback(() => {
+    surevideotoolCamWindowEnabledRef.current = false;
+
+    if (window.electron) {
+      void window.electron.invoke('virtual-camera:stop').catch((err: unknown) => {
+        console.warn('Failed to stop virtual camera publisher:', err);
+      });
     }
   }, []);
 
@@ -1233,31 +1271,7 @@ function Dashboard() {
       const realtimeClient = await client.realtime.connect(stream, {
         model,
         onRemoteStream: (editedStream: MediaStream) => {
-          const video = outputVideoRef.current as VideoElementWithFrameCallbacks | null;
-          if (!video) {
-            return;
-          }
-
-          if (video.srcObject !== editedStream) {
-            video.srcObject = editedStream;
-          }
-
-          video.playbackRate = 1;
-          video.latencyHint = 'interactive';
-
-          const playRemote = () => {
-            void video.play().catch(() => {});
-            markRemoteFrameFresh();
-            startRemoteFrameMonitor();
-          };
-
-          video.onloadedmetadata = playRemote;
-
-          if (video.readyState >= 2) {
-            playRemote();
-          }
-
-          syncSurevideotoolCamStream(
+          bindOutputStream(
             editedStream,
             options?.isRecovery ? 'Reconnecting Surevideotool cam...' : 'Connecting Surevideotool cam...',
           );
@@ -1417,14 +1431,12 @@ function Dashboard() {
       return null;
     }
   }, [
+    bindOutputStream,
     cleanupClientSubscriptions,
     clearSoftReconnectTimer,
     getSurevideotoolCamGuideMessage,
     handleRealtimeStats,
-    markRemoteFrameFresh,
     resetHealthCounters,
-    syncSurevideotoolCamStream,
-    startRemoteFrameMonitor,
     updateSurevideotoolCamPlaceholder,
     updateSurevideotoolCamStatus,
   ]);
@@ -1524,13 +1536,7 @@ function Dashboard() {
       pollIntervalRef.current = null;
     }
 
-    // Disarm the virtual camera publisher and disable the popup window
-    surevideotoolCamWindowEnabledRef.current = false;
-    if (window.electron) {
-      void window.electron.invoke('virtual-camera:stop').catch((err: unknown) => {
-        console.warn('Failed to stop virtual camera publisher:', err);
-      });
-    }
+    stopVirtualCameraPublisher();
 
     sessionTokenRef.current = '';
     sessionIdRef.current = '';
@@ -1556,6 +1562,7 @@ function Dashboard() {
     resetHealthCounters,
     setCredits,
     setSessionStatus,
+    stopVirtualCameraPublisher,
     stopWebcam,
     user?.id,
   ]);
@@ -1599,7 +1606,7 @@ function Dashboard() {
       const videoDevices = devices.filter((device) => device.kind === 'videoinput');
       setCameraDevices(videoDevices);
 
-      if (videoDevices.length > 0 && !selectedCameraId) {
+      if (videoDevices.length > 0 && (!selectedCameraId || !videoDevices.some((device) => device.deviceId === selectedCameraId))) {
         const builtinCamera = videoDevices.find((device) =>
           device.label.toLowerCase().includes('integrated') ||
           device.label.toLowerCase().includes('built-in') ||
@@ -1793,6 +1800,11 @@ function Dashboard() {
   }, [activeMode, isStreaming, restartRealtimeSession, selectedCameraId, startWebcam]);
 
   const handleStart = async () => {
+    if (!user?.id) {
+      toast.error('Please sign in before starting a live stream.');
+      return;
+    }
+
     setIsLoading(true);
     setConnectionState('connecting');
     setUiStatus('Connecting...');
@@ -1837,9 +1849,9 @@ function Dashboard() {
 
       if (!startResponse.allowed) {
         toast.error(startResponse.error || 'Insufficient credits');
+        stopVirtualCameraPublisher();
         stopWebcam();
         closeSurevideotoolCamWindow({ clearStream: true });
-        surevideotoolCamWindowEnabledRef.current = false;
         setIsLoading(false);
         return;
       }
@@ -1879,6 +1891,10 @@ function Dashboard() {
       setIsStreaming(true);
       setSessionStatus('LIVE');
       setUiStatus('Live');
+
+      if (!virtualCameraStartResult || virtualCameraStartResult.success !== false) {
+        toast.success('Surevideotool camera is live. Select "Surevideotool" in WhatsApp, Zoom, or OBS.');
+      }
     } catch (error) {
       console.error('Start session error:', error);
       const toastMessage = getStartSessionErrorToast(error);
@@ -1896,7 +1912,7 @@ function Dashboard() {
       }
 
       sessionTokenRef.current = '';
-      surevideotoolCamWindowEnabledRef.current = false;
+  stopVirtualCameraPublisher();
       stopWebcam();
       disconnectFromDecart();
       closeSurevideotoolCamWindow({ clearStream: true });
@@ -1948,6 +1964,7 @@ function Dashboard() {
   };
 
   const getRemainingSeconds = () => Math.floor(credits / CREDITS_PER_SECOND);
+  const statusDetail = `${(streamMetrics.limitation === 'none' ? 'No throttling' : `${streamMetrics.limitation} limited`)} · ${uiStatus}`;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -2038,7 +2055,9 @@ function Dashboard() {
             }`}
           >
             <Play className="h-3 w-3 fill-current" />
-            <span className="text-[11px] font-semibold tracking-wide">{isLoading ? 'Starting' : 'Start'}</span>
+            <span className="text-[11px] font-semibold tracking-wide">
+              {isLoading ? 'Starting' : 'Start'}
+            </span>
           </button>
 
           <button
@@ -2074,8 +2093,9 @@ function Dashboard() {
             <select
               value={selectedCameraId}
               onChange={(event) => handleCameraChange(event.target.value)}
-              title="Select camera"
-              className="hidden h-7 max-w-[160px] rounded border border-[#2A2A2A] bg-[#1E1E1E] px-1.5 text-[11px] text-[#A3A3A3] transition-colors focus:border-[#3A3A3A] focus:outline-none md:inline-flex"
+              title="Select input camera"
+              aria-label="Select input camera"
+              className="h-7 max-w-[180px] rounded border border-[#2A2A2A] bg-[#1E1E1E] px-1.5 text-[11px] text-[#A3A3A3] transition-colors focus:border-[#3A3A3A] focus:outline-none"
             >
               {cameraDevices.map((device, index) => (
                 <option key={device.deviceId} value={device.deviceId}>
@@ -2084,6 +2104,7 @@ function Dashboard() {
               ))}
             </select>
           )}
+
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
@@ -2117,9 +2138,7 @@ function Dashboard() {
             <div className="flex flex-col leading-tight">
               <span className="text-[8px] font-bold uppercase tracking-[0.18em] text-[#60A5FA]">Remaining</span>
               <span className="text-[11px] font-bold text-[#E5E5E5] tabular-nums">{formatTime(getRemainingSeconds())}</span>
-              <span className="text-[9px] text-[#6B7280]">
-                {(streamMetrics.limitation === 'none' ? 'No throttling' : `${streamMetrics.limitation} limited`)} · {uiStatus}
-              </span>
+              <span className="text-[9px] text-[#6B7280]">{statusDetail}</span>
             </div>
           </div>
         </div>

@@ -1,11 +1,23 @@
 // @ts-nocheck
 import { supabaseAdmin } from './supabase.js';
 
-// How many seconds each heartbeat tick represents.
-// The client calls this endpoint on this same interval.
-const HEARTBEAT_SECONDS = 30;
 const CREDITS_PER_SECOND = 2;
-const CREDITS_PER_HEARTBEAT = HEARTBEAT_SECONDS * CREDITS_PER_SECOND; // 150
+const MAX_BILLABLE_SECONDS = 7200;
+
+function normalizeCredits(value) {
+  const credits = Number(value ?? 0);
+  return Number.isFinite(credits) ? credits : 0;
+}
+
+function getBillableSeconds(startTime) {
+  const timestamp = new Date(startTime).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return 0;
+  }
+
+  const elapsedSeconds = Math.floor((Date.now() - timestamp) / 1000);
+  return Math.min(Math.max(elapsedSeconds, 0), MAX_BILLABLE_SECONDS);
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -21,12 +33,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Read wallet and verify session in parallel
+    // Read wallet and verify session in parallel.
+    // Heartbeat is intentionally read-only: final billing happens in end-session.
     const [{ data: walletData }, { data: sessionData }] = await Promise.all([
       supabaseAdmin.from('wallets').select('credits').eq('user_id', userId).single(),
       supabaseAdmin
         .from('sessions')
-        .select('id, seconds_used, credits_used, status')
+        .select('id, start_time, status')
         .eq('id', sessionId)
         .eq('user_id', userId)
         .eq('status', 'active')
@@ -38,32 +51,23 @@ export default async function handler(req, res) {
       return res.json({ shouldStop: true, reason: 'session_not_found', remainingCredits: 0 });
     }
 
-    const currentCredits = walletData?.credits ?? 0;
+    const currentCredits = normalizeCredits(walletData?.credits);
 
     if (currentCredits <= 0) {
       return res.json({ shouldStop: true, reason: 'no_credits', remainingCredits: 0 });
     }
 
-    // Bill exactly one heartbeat tick, but never go below zero
-    const creditsToDeduct = Math.min(currentCredits, CREDITS_PER_HEARTBEAT);
-    const newCredits = currentCredits - creditsToDeduct;
-    const newSecondsUsed = (sessionData.seconds_used ?? 0) + HEARTBEAT_SECONDS;
-    const newCreditsUsed = (sessionData.credits_used ?? 0) + creditsToDeduct;
+    const billableElapsed = getBillableSeconds(sessionData.start_time);
+    const liveDeducted = Math.min(currentCredits, billableElapsed * CREDITS_PER_SECOND);
+    const remainingCredits = Math.max(0, currentCredits - liveDeducted);
+    const shouldStop = remainingCredits <= 0;
 
-    // Update wallet and session atomically (two fast writes)
-    await Promise.all([
-      supabaseAdmin
-        .from('wallets')
-        .update({ credits: newCredits })
-        .eq('user_id', userId),
-      supabaseAdmin
-        .from('sessions')
-        .update({ seconds_used: newSecondsUsed, credits_used: newCreditsUsed })
-        .eq('id', sessionId),
-    ]);
-
-    const shouldStop = newCredits <= 0;
-    return res.json({ remainingCredits: newCredits, shouldStop });
+    return res.json({
+      remainingCredits,
+      elapsedSeconds: billableElapsed,
+      shouldStop,
+      forceEnd: shouldStop,
+    });
   } catch (error) {
     console.error('Heartbeat error:', error);
     return res.status(500).json({ error: 'Internal server error' });

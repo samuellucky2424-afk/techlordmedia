@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = __dirname ? path.resolve(__dirname, '..') : process.cwd();
-const pathsToRemove = ['dist', 'release-build'];
+const pathsToRemove = ['dist', 'release', 'release-build'];
 
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

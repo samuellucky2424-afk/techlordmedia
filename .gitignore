@@ -23,6 +23,7 @@ release/
 # Electron build artifacts
 app/release/
 .push-fix/app/release/
+app/release-camera-test*/
 app/.cache/
 native-camera/build/
 
@@ -44,3 +45,6 @@ scripts/monitor-morphly.ps1
 
 # IDE
 .vscode/*.log
+
+.vercel
+.env*.local
