@@ -55,6 +55,21 @@ jobs:
         VITE_PAYMENTPOINT_ACCOUNT_NUMBER: ${{ vars.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || secrets.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || vars.PAYMENTPOINT_ACCOUNT_NUMBER || secrets.PAYMENTPOINT_ACCOUNT_NUMBER }}
         VITE_PAYMENTPOINT_BANK_NAME: ${{ vars.VITE_PAYMENTPOINT_BANK_NAME || secrets.VITE_PAYMENTPOINT_BANK_NAME || vars.PAYMENTPOINT_BANK_NAME || secrets.PAYMENTPOINT_BANK_NAME }}
       run: |
+        $defaultSupabaseUrl = "https://zrtvliudyefmeeltxoaz.supabase.co"
+        $defaultSupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpydHZsaXVkeWVmbWVlbHR4b2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTA4MjEsImV4cCI6MjA4ODM4NjgyMX0.wlLOoTx8DN96a1qU5KMhP0bhFeC_y3K6JqrFQqODOFY"
+
+        if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL)) {
+          $env:VITE_SUPABASE_URL = $defaultSupabaseUrl
+        }
+
+        if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
+          $env:VITE_SUPABASE_ANON_KEY = $defaultSupabaseAnonKey
+        }
+
+        if ([string]::IsNullOrWhiteSpace($env:SUPABASE_URL)) {
+          $env:SUPABASE_URL = $env:VITE_SUPABASE_URL
+        }
+
         $optional = @{
           VITE_SUPABASE_URL = $env:VITE_SUPABASE_URL
           VITE_SUPABASE_ANON_KEY = $env:VITE_SUPABASE_ANON_KEY
@@ -102,17 +117,10 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SUREVIDEOTOOL_NATIVE_BUILD_DIR: ../native-camera/build
-        VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL || vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-        VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY || vars.SUPABASE_ANON_KEY }}
-        VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL }}
         PAYMENTPOINT_API_KEY: ${{ secrets.PAYMENTPOINT_API_KEY || vars.PAYMENTPOINT_API_KEY }}
         PAYMENTPOINT_SECRET_KEY: ${{ secrets.PAYMENTPOINT_SECRET_KEY || vars.PAYMENTPOINT_SECRET_KEY || secrets.PAYMENTPOINT_WEBHOOK_SECRET || vars.PAYMENTPOINT_WEBHOOK_SECRET || secrets.PAYMENTPOINT_SECURITY_KEY || vars.PAYMENTPOINT_SECURITY_KEY }}
         PAYMENTPOINT_BUSINESS_ID: ${{ secrets.PAYMENTPOINT_BUSINESS_ID || vars.PAYMENTPOINT_BUSINESS_ID || secrets.PAYMENTPOINT_API_KEY || vars.PAYMENTPOINT_API_KEY }}
         PAYMENTPOINT_BANK_CODES: ${{ secrets.PAYMENTPOINT_BANK_CODES || vars.PAYMENTPOINT_BANK_CODES }}
-        VITE_PAYMENTPOINT_CHECKOUT_URL: ${{ vars.VITE_PAYMENTPOINT_CHECKOUT_URL || secrets.VITE_PAYMENTPOINT_CHECKOUT_URL || vars.VITE_PAYMENTPOINT_URL || secrets.VITE_PAYMENTPOINT_URL || vars.PAYMENTPOINT_CHECKOUT_URL || secrets.PAYMENTPOINT_CHECKOUT_URL }}
-        VITE_PAYMENTPOINT_ACCOUNT_NAME: ${{ vars.VITE_PAYMENTPOINT_ACCOUNT_NAME || secrets.VITE_PAYMENTPOINT_ACCOUNT_NAME || vars.PAYMENTPOINT_ACCOUNT_NAME || secrets.PAYMENTPOINT_ACCOUNT_NAME }}
-        VITE_PAYMENTPOINT_ACCOUNT_NUMBER: ${{ vars.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || secrets.VITE_PAYMENTPOINT_ACCOUNT_NUMBER || vars.PAYMENTPOINT_ACCOUNT_NUMBER || secrets.PAYMENTPOINT_ACCOUNT_NUMBER }}
-        VITE_PAYMENTPOINT_BANK_NAME: ${{ vars.VITE_PAYMENTPOINT_BANK_NAME || secrets.VITE_PAYMENTPOINT_BANK_NAME || vars.PAYMENTPOINT_BANK_NAME || secrets.PAYMENTPOINT_BANK_NAME }}
       run: npm run electron:build
 
     - name: Resolve release version
@@ -167,6 +175,17 @@ jobs:
 
         $bundledCameraDir = Join-Path $dir "win-unpacked/resources/surevideotool-cam"
         if (!(Test-Path $bundledCameraDir)) { throw "Missing bundled camera directory: $bundledCameraDir" }
+
+        $bundledEnvPath = Join-Path $dir "win-unpacked/resources/.env"
+        if (!(Test-Path $bundledEnvPath)) { throw "Missing bundled env file: $bundledEnvPath" }
+
+        $bundledEnv = Get-Content $bundledEnvPath
+        foreach ($requiredEnv in @("VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_API_URL")) {
+          $line = $bundledEnv | Where-Object { $_ -like "$requiredEnv=*" } | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($line) -or $line -eq "$requiredEnv=") {
+            throw "Bundled release env is missing $requiredEnv"
+          }
+        }
 
         $expectedArtifacts = @(
           "SurevideotoolVirtualCamera.dll",
