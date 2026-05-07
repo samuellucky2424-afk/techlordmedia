@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { logPaymentActivity } from './payment-activity-log.js';
 
 const PAYMENTPOINT_CREDIT_PLANS = [
   { credits: 500, amountNGN: 11500 },
@@ -210,6 +211,14 @@ export async function applyVerifiedPayment(supabaseAdmin, {
     throw new Error('Missing payment reference or userId');
   }
 
+  await logPaymentActivity(supabaseAdmin, {
+    event: 'payment_apply_started',
+    reference,
+    userId,
+    targetId: reference,
+    payload: { requestedCredits: credits, amountPaidNGN, provider },
+  });
+
   const { data: existingTransaction, error: existingTransactionError } = await supabaseAdmin
     .from('transactions')
     .select('id, credits')
@@ -222,11 +231,25 @@ export async function applyVerifiedPayment(supabaseAdmin, {
   }
 
   if (existingTransaction) {
+    const newCredits = await getWalletCredits(supabaseAdmin, userId);
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'payment_apply_duplicate_skipped',
+      reference,
+      userId,
+      targetId: reference,
+      message: 'Payment already processed',
+      payload: {
+        existingTransactionId: existingTransaction.id,
+        existingCredits: existingTransaction.credits,
+        newCredits,
+      },
+    });
+
     return {
       status: 'success',
       message: 'Payment already processed',
       creditsAdded: 0,
-      newCredits: await getWalletCredits(supabaseAdmin, userId),
+      newCredits,
       reference,
     };
   }
@@ -239,6 +262,21 @@ export async function applyVerifiedPayment(supabaseAdmin, {
   const currentCredits = await getWalletCredits(supabaseAdmin, userId);
   const newCredits = currentCredits + creditsToAdd;
   await upsertWalletCredits(supabaseAdmin, userId, newCredits);
+
+  await logPaymentActivity(supabaseAdmin, {
+    event: 'wallet_credits_added',
+    reference,
+    userId,
+    targetId: reference,
+    message: `${creditsToAdd} credits added`,
+    payload: {
+      beforeCredits: currentCredits,
+      creditsAdded: creditsToAdd,
+      afterCredits: newCredits,
+      amountPaidNGN,
+      provider,
+    },
+  });
 
   const timestamp = new Date().toISOString();
   const planName = `${creditsToAdd} Credits`;
@@ -275,6 +313,18 @@ export async function applyVerifiedPayment(supabaseAdmin, {
     },
   ]);
 
+  await logPaymentActivity(supabaseAdmin, {
+    event: 'payment_transaction_recorded',
+    reference,
+    userId,
+    targetId: reference,
+    payload: {
+      creditsAdded: creditsToAdd,
+      amountPaidNGN,
+      description: transactionDescription,
+    },
+  });
+
   await insertSubscriptionRecord(supabaseAdmin, [
     {
       user_id: userId,
@@ -292,6 +342,20 @@ export async function applyVerifiedPayment(supabaseAdmin, {
       created_at: timestamp,
     },
   ]);
+
+  await logPaymentActivity(supabaseAdmin, {
+    event: 'payment_apply_completed',
+    reference,
+    userId,
+    targetId: reference,
+    message: 'PaymentPoint payment processed successfully',
+    payload: {
+      creditsAdded: creditsToAdd,
+      newCredits,
+      amountPaidNGN,
+      provider,
+    },
+  });
 
   return {
     status: 'success',

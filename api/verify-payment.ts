@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { supabaseAdmin, supabaseAdminConfigError } from './supabase.js';
 import { findLatestSuccessfulPaymentPointWebhook } from '../shared/paymentpoint-webhook-cache.js';
+import { logPaymentActivity } from '../shared/payment-activity-log.js';
 import { logError, logPayment } from '../shared/server-logger.js';
 import {
   applyVerifiedPayment,
@@ -32,6 +33,15 @@ export default async function handler(req, res) {
   const lookupReference = reference || transactionId;
 
   if ((!lookupReference && !customerEmail && !customerId) || (!userId && !customerEmail)) {
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'payment_verify_rejected_missing_data',
+      severity: 'warning',
+      reference: lookupReference,
+      userId,
+      statusCode: 400,
+      message: 'Missing PaymentPoint verification data',
+      payload: { customerEmail, customerId, receiverAccountNumber, amountNGN, credits, createdAfter },
+    });
     return res.status(400).json({
       status: 'failed',
       message: 'Missing PaymentPoint verification data',
@@ -46,6 +56,19 @@ export default async function handler(req, res) {
     );
 
     if (!userResolution.userId) {
+      await logPaymentActivity(supabaseAdmin, {
+        event: 'payment_verify_user_mapping_failed',
+        severity: 'warning',
+        reference: lookupReference,
+        targetId: lookupReference || customerEmail,
+        statusCode: 400,
+        message: 'Unable to resolve the PaymentPoint customer to a user',
+        payload: {
+          customerEmail,
+          customerId,
+          resolutionSource: userResolution.source,
+        },
+      });
       return res.status(400).json({
         status: 'failed',
         message: 'Unable to resolve the PaymentPoint customer to a user',
@@ -110,6 +133,24 @@ export default async function handler(req, res) {
       result,
     });
 
+    await logPaymentActivity(supabaseAdmin, {
+      event: result.status === 'pending' ? 'payment_verify_pending' : 'payment_verify_completed',
+      reference: lookupReference || result.reference,
+      userId: userResolution.userId,
+      targetId: lookupReference || result.reference || customerEmail,
+      statusCode: result.status === 'pending' ? 202 : 200,
+      message: result.message,
+      payload: {
+        customerEmail,
+        customerId,
+        receiverAccountNumber,
+        amountNGN,
+        credits,
+        createdAfter,
+        result,
+      },
+    });
+
     if (result.status === 'pending') {
       return res.status(202).json(result);
     }
@@ -122,6 +163,16 @@ export default async function handler(req, res) {
       reference: lookupReference,
       customerEmail,
       userId,
+    });
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'payment_verify_unexpected_error',
+      severity: 'error',
+      reference: lookupReference,
+      userId,
+      targetId: lookupReference || customerEmail,
+      statusCode: 500,
+      message: error?.message || 'Internal server error',
+      payload: { customerEmail, customerId, receiverAccountNumber, amountNGN, credits, createdAfter },
     });
     return res.status(500).json({ status: 'failed', message: 'Internal server error' });
   }

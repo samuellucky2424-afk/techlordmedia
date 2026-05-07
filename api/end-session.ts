@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { supabaseAdmin, supabaseAdminConfigError } from './supabase.js';
+import { logPaymentActivity } from '../shared/payment-activity-log.js';
 
 const CREDITS_PER_SECOND = 2;
 // Hard ceiling: one session can never bill more than 2 hours,
@@ -57,6 +58,20 @@ async function billAndCloseSession(session, userId) {
     throw updateError.error;
   }
 
+  await logPaymentActivity(supabaseAdmin, {
+    event: 'wallet_credits_deducted_session_end',
+    userId,
+    targetId: session.id,
+    message: `${creditsToDeduct} credits deducted at session end`,
+    payload: {
+      sessionId: session.id,
+      beforeCredits: currentCredits,
+      creditsDeducted: creditsToDeduct,
+      afterCredits: newCredits,
+      billableSeconds,
+    },
+  });
+
   return newCredits;
 }
 
@@ -76,6 +91,12 @@ export default async function handler(req, res) {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
 
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_end_requested',
+      userId,
+      targetId: userId,
+    });
+
     const { data: activeSession, error: activeSessionError } = await supabaseAdmin
       .from('sessions')
       .select('id, start_time')
@@ -84,15 +105,40 @@ export default async function handler(req, res) {
 
     if (activeSessionError) {
       console.error('Failed to load active session:', activeSessionError);
+      await logPaymentActivity(supabaseAdmin, {
+        event: 'session_end_failed_load_active_session',
+        severity: 'error',
+        userId,
+        targetId: userId,
+        message: activeSessionError.message,
+      });
       return res.status(500).json({ success: false, message: 'Failed to load active session' });
     }
 
-    if (!activeSession) return res.json({ success: true, message: 'No active session', remainingCredits: null });
+    if (!activeSession) {
+      await logPaymentActivity(supabaseAdmin, {
+        event: 'session_end_no_active_session',
+        userId,
+        targetId: userId,
+      });
+      return res.json({ success: true, message: 'No active session', remainingCredits: null });
+    }
 
     const remainingCredits = await billAndCloseSession(activeSession, userId);
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_ended',
+      userId,
+      targetId: activeSession.id,
+      payload: { sessionId: activeSession.id, remainingCredits },
+    });
     return res.json({ success: true, remainingCredits });
   } catch (error) {
     console.error('end-session unexpected error:', error);
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_end_unexpected_error',
+      severity: 'error',
+      message: error?.message || 'Internal server error',
+    });
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }

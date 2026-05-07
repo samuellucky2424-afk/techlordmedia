@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { supabaseAdmin, supabaseAdminConfigError } from './supabase.js';
+import { logPaymentActivity } from '../shared/payment-activity-log.js';
 
 const CREDITS_PER_SECOND = 2;
 const MAX_BILLABLE_SECONDS = 7200;
@@ -66,6 +67,13 @@ export default async function handler(req, res) {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ allowed: false, error: 'User ID is required' });
 
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_start_requested',
+      userId,
+      targetId: userId,
+      payload: {},
+    });
+
     // Fetch orphaned sessions and wallet in parallel
     const [activeSessionsResult, walletResult] = await Promise.all([
       supabaseAdmin
@@ -123,13 +131,43 @@ export default async function handler(req, res) {
       const cleanupError = cleanupResults.find(result => result?.error);
       if (cleanupError?.error) {
         console.error('Failed to close orphaned sessions:', cleanupError.error);
+        await logPaymentActivity(supabaseAdmin, {
+          event: 'orphan_session_cleanup_failed',
+          severity: 'error',
+          userId,
+          targetId: userId,
+          message: cleanupError.error.message,
+          payload: { activeSessionCount: existingActiveSessions.length, actualDeduction },
+        });
         return res.status(500).json({ allowed: false, error: 'Failed to close previous sessions' });
+      }
+
+      if (actualDeduction > 0) {
+        await logPaymentActivity(supabaseAdmin, {
+          event: 'wallet_credits_deducted_orphan_session_cleanup',
+          userId,
+          targetId: userId,
+          message: `${actualDeduction} credits deducted while closing previous active sessions`,
+          payload: {
+            beforeCredits: normalizeCredits(walletNow?.credits),
+            creditsDeducted: actualDeduction,
+            afterCredits: runningCredits,
+            sessions: plannedSessions,
+          },
+        });
       }
     }
 
     // Use the already-fetched (and post-billing-adjusted) credit balance
     const userCredits = runningCredits;
     if (userCredits <= 0) {
+      await logPaymentActivity(supabaseAdmin, {
+        event: 'session_start_denied_insufficient_credits',
+        severity: 'warning',
+        userId,
+        targetId: userId,
+        payload: { credits: userCredits },
+      });
       return res.json({ allowed: false, error: 'Insufficient credits' });
     }
 
@@ -148,12 +186,32 @@ export default async function handler(req, res) {
 
     if (sessionError) {
       console.error('Failed to create session:', sessionError);
+      await logPaymentActivity(supabaseAdmin, {
+        event: 'session_start_failed',
+        severity: 'error',
+        userId,
+        targetId: userId,
+        message: sessionError.message,
+        payload: { credits: userCredits },
+      });
       return res.status(500).json({ allowed: false, error: 'Failed to create session' });
     }
+
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_started',
+      userId,
+      targetId: newSession.id,
+      payload: { sessionId: newSession.id, credits: userCredits, maxSeconds },
+    });
 
     res.json({ allowed: true, sessionId: newSession.id, credits: userCredits, maxSeconds, token: decartApiKey });
   } catch (error) {
     console.error('start-session unexpected error:', error);
+    await logPaymentActivity(supabaseAdmin, {
+      event: 'session_start_unexpected_error',
+      severity: 'error',
+      message: error?.message || 'Internal server error',
+    });
     res.status(500).json({ allowed: false, error: 'Internal server error' });
   }
 }
