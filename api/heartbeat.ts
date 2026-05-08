@@ -3,7 +3,7 @@ import { supabaseAdmin } from './supabase.js';
 
 const CREDITS_PER_SECOND = 2;
 const MAX_BILLABLE_SECONDS = 7200;
-const SESSION_BILLING_GRACE_SECONDS = 60;
+const SESSION_BILLING_GRACE_SECONDS = 20;
 
 function normalizeCredits(value) {
   const credits = Number(value ?? 0);

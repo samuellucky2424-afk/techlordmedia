@@ -4,7 +4,7 @@ import { logPaymentActivity } from '../../shared/payment-activity-log.js';
 
 const CREDITS_PER_SECOND = 2;
 const MAX_BILLABLE_SECONDS = 7200;
-const SESSION_BILLING_GRACE_SECONDS = 60;
+const SESSION_BILLING_GRACE_SECONDS = 20;
 
 function getDecartApiKey() {
   return process.env.DECART_API_KEY?.trim() || null;

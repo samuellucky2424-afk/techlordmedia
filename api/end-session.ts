@@ -6,7 +6,7 @@ const CREDITS_PER_SECOND = 2;
 // Hard ceiling: one session can never bill more than 2 hours,
 // protecting users whose app crashed and left an orphaned session.
 const MAX_BILLABLE_SECONDS = 7200;
-const SESSION_BILLING_GRACE_SECONDS = 60;
+const SESSION_BILLING_GRACE_SECONDS = 20;
 
 function normalizeCredits(value) {
   const credits = Number(value ?? 0);
