@@ -48,6 +48,27 @@ export default async function handler(req, res) {
       return res.status(500).json({ isAdmin: false, error: adminError.message || 'admin lookup failed' });
     }
 
+    if (!adminRow?.user_id && user.email) {
+      const { data: adminEmailRow, error: adminEmailError } = await supabaseAdmin
+        .from('admins')
+        .select('user_id,email')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (adminEmailError) {
+        console.error('[api/admin-status] admin email lookup failed:', adminEmailError);
+        return res.status(500).json({ isAdmin: false, error: adminEmailError.message || 'admin email lookup failed' });
+      }
+
+      if (adminEmailRow?.user_id) {
+        return res.json({
+          isAdmin: true,
+          userId: user.id,
+          email: user.email || null,
+        });
+      }
+    }
+
     return res.json({
       isAdmin: Boolean(adminRow?.user_id),
       userId: user.id,

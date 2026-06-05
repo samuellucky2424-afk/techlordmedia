@@ -105,7 +105,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return Boolean(status?.isAdmin);
         }
 
-        console.warn('[auth] admin-status fallback failed:', response.status);
+        const status = await response.json().catch(() => null);
+        console.warn('[auth] admin-status fallback failed:', response.status, status?.warning || status?.error || status);
       }
 
       return false;
