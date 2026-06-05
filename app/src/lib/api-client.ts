@@ -15,17 +15,22 @@ function isFileProtocol(): boolean {
 }
 
 function getApiBase(): string {
-  if (import.meta.env.DEV) {
+  const configuredBase = normalizeApiBase(import.meta.env.VITE_API_URL);
+  const deployedBase = `${DEPLOYED_APP_ORIGIN}/api`;
+
+  if (configuredBase) {
+    if (configuredBase.startsWith('/') && isFileProtocol()) {
+      return deployedBase;
+    }
+
+    return configuredBase;
+  }
+
+  if (import.meta.env.DEV && import.meta.env.VITE_USE_LOCAL_API === 'true') {
     return LOCAL_API_BASE;
   }
 
-  const configuredBase = normalizeApiBase(import.meta.env.VITE_API_URL);
-
-  if (configuredBase && configuredBase.startsWith('/') && isFileProtocol()) {
-    return `${DEPLOYED_APP_ORIGIN}/api`;
-  }
-
-  return configuredBase || `${DEPLOYED_APP_ORIGIN}/api`;
+  return deployedBase;
 }
 
 function withLeadingSlash(path: string): string {
