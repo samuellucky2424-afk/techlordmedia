@@ -24,14 +24,6 @@ jobs:
         cache: 'npm'
         cache-dependency-path: app/package-lock.json
 
-    - name: Configure native Surevideotool camera build
-      shell: pwsh
-      run: cmake -S native-camera -B native-camera/build -A x64
-
-    - name: Build native Surevideotool camera artifacts
-      shell: pwsh
-      run: cmake --build native-camera/build --config Release
-
     - name: Install dependencies
       working-directory: app
       run: npm ci
@@ -116,7 +108,6 @@ jobs:
       working-directory: app
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SUREVIDEOTOOL_NATIVE_BUILD_DIR: ../native-camera/build
         PAYMENTPOINT_API_KEY: ${{ secrets.PAYMENTPOINT_API_KEY || vars.PAYMENTPOINT_API_KEY }}
         PAYMENTPOINT_SECRET_KEY: ${{ secrets.PAYMENTPOINT_SECRET_KEY || vars.PAYMENTPOINT_SECRET_KEY || secrets.PAYMENTPOINT_WEBHOOK_SECRET || vars.PAYMENTPOINT_WEBHOOK_SECRET || secrets.PAYMENTPOINT_SECURITY_KEY || vars.PAYMENTPOINT_SECURITY_KEY }}
         PAYMENTPOINT_BUSINESS_ID: ${{ secrets.PAYMENTPOINT_BUSINESS_ID || vars.PAYMENTPOINT_BUSINESS_ID || secrets.PAYMENTPOINT_API_KEY || vars.PAYMENTPOINT_API_KEY }}
@@ -159,12 +150,12 @@ jobs:
         if (!$blockmaps) { throw "Missing .blockmap files in $dir" }
 
         $installerCandidates = @(
-          (Join-Path $dir "Surevideotool-Setup-$version.exe"),
-          (Join-Path $dir "Surevideotool Setup $version.exe")
+          (Join-Path $dir "Tech Lord Media Setup $version.exe"),
+          (Join-Path $dir "Tech-Lord-Media-Setup-$version.exe")
         )
         $portableCandidates = @(
-          (Join-Path $dir "Surevideotool-$version.exe"),
-          (Join-Path $dir "Surevideotool $version.exe")
+          (Join-Path $dir "Tech Lord Media $version.exe"),
+          (Join-Path $dir "Tech-Lord-Media-$version.exe")
         )
 
         $exe1 = $installerCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -173,29 +164,14 @@ jobs:
         if (!$exe1) { throw "Missing installer. Checked: $($installerCandidates -join ', ')" }
         if (!$exe2) { throw "Missing portable build. Checked: $($portableCandidates -join ', ')" }
 
-        $bundledCameraDir = Join-Path $dir "win-unpacked/resources/surevideotool-cam"
-        if (!(Test-Path $bundledCameraDir)) { throw "Missing bundled camera directory: $bundledCameraDir" }
-
         $bundledEnvPath = Join-Path $dir "win-unpacked/resources/.env"
-        if (!(Test-Path $bundledEnvPath)) { throw "Missing bundled env file: $bundledEnvPath" }
+        if (Test-Path $bundledEnvPath) { throw "Desktop release should not bundle .env: $bundledEnvPath" }
 
-        $bundledEnv = Get-Content $bundledEnvPath
-        foreach ($requiredEnv in @("VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_API_URL")) {
-          $line = $bundledEnv | Where-Object { $_ -like "$requiredEnv=*" } | Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($line) -or $line -eq "$requiredEnv=") {
-            throw "Bundled release env is missing $requiredEnv"
-          }
-        }
+        $forbiddenArtifacts = Get-ChildItem -Path $dir -Recurse -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -match 'SurevideotoolVirtualCamera|surevideotool_cam|native-camera|installer\.nsh|afterPack' }
 
-        $expectedArtifacts = @(
-          "SurevideotoolVirtualCamera.dll",
-          "surevideotool_cam_registrar.exe",
-          "surevideotool_cam_pipe_publisher.exe"
-        )
-
-        foreach ($artifact in $expectedArtifacts) {
-          $artifactPath = Join-Path $bundledCameraDir $artifact
-          if (!(Test-Path $artifactPath)) { throw "Missing bundled camera artifact: $artifactPath" }
+        if ($forbiddenArtifacts) {
+          throw "Release contains virtual camera artifacts: $($forbiddenArtifacts.FullName -join ', ')"
         }
 
     - name: Publish GitHub release assets
