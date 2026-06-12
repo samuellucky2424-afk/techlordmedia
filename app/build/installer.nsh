@@ -11,7 +11,7 @@
   Pop $1
 
   StrCmp $1 "0" customInstallDone
-  MessageBox MB_ICONEXCLAMATION|MB_OK "Tech Lord Media was installed, but the Tech Lord Media virtual camera setup failed.$\r$\n$\r$\nAll-users exit code: $0$\r$\nCurrent-user exit code: $1$\r$\n$\r$\nYou can retry manually from:$\r$\n$INSTDIR\resources\surevideotool-cam\surevideotool_cam_registrar.exe install"
+  MessageBox MB_ICONEXCLAMATION|MB_OK "Tech Lord Media was installed, but the Tech Lord Media virtual camera setup failed.$\r$\n$\r$\nClose WhatsApp, OBS, Chrome, Zoom, the Windows Camera app, and any app using Tech Lord Media as a camera. If it still fails, restart Windows and run this installer again.$\r$\n$\r$\nAll-users exit code: $0$\r$\nCurrent-user exit code: $1$\r$\n$\r$\nYou can retry manually from:$\r$\n$INSTDIR\resources\surevideotool-cam\surevideotool_cam_registrar.exe install"
 
 customInstallDone:
 !macroend

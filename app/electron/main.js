@@ -42,6 +42,7 @@ const VIRTUAL_CAM_STATS_INTERVAL_MS = 5000;
 const VIRTUAL_CAM_BLACK_SAMPLE_PIXELS = 512;
 const VIRTUAL_CAM_LOG_FILE_NAME = 'virtual-camera.log';
 const VIRTUAL_CAM_STALE_RENDERER_FRAME_MS = 2000;
+const VIRTUAL_CAM_DIAGNOSTIC_FRAME_INTERVAL_MS = 200;
 
 app.disableHardwareAcceleration();
 app.setName('Tech Lord Media');
@@ -154,6 +155,7 @@ function logVirtualCameraStats(controller, reason) {
     `rendererFrames=${controller.stats.rendererFramesReceived} captureFallbacks=${controller.stats.captureFallbacks} ` +
     `captureFailures=${controller.stats.captureFailures} publishFailures=${controller.stats.publishFailures} ` +
     `blackFrames=${controller.stats.blackFrames} staleCachedFrames=${controller.stats.staleCachedFrames ?? 0} ` +
+    `diagnosticFrames=${controller.stats.diagnosticFrames ?? 0} droppedRendererBlackFrames=${controller.stats.rendererBlackFramesDropped ?? 0} ` +
     `size=${VIRTUAL_CAM_FRAME_WIDTH}x${VIRTUAL_CAM_FRAME_HEIGHT} format=BGRA32`
   );
   appendVirtualCameraLogLine(
@@ -161,6 +163,7 @@ function logVirtualCameraStats(controller, reason) {
     `rendererFrames=${controller.stats.rendererFramesReceived} captureFallbacks=${controller.stats.captureFallbacks} ` +
     `captureFailures=${controller.stats.captureFailures} publishFailures=${controller.stats.publishFailures} ` +
     `blackFrames=${controller.stats.blackFrames} staleCachedFrames=${controller.stats.staleCachedFrames ?? 0} ` +
+    `diagnosticFrames=${controller.stats.diagnosticFrames ?? 0} droppedRendererBlackFrames=${controller.stats.rendererBlackFramesDropped ?? 0} ` +
     `size=${VIRTUAL_CAM_FRAME_WIDTH}x${VIRTUAL_CAM_FRAME_HEIGHT} format=BGRA32`
   );
   controller.stats.lastLogAt = now;
@@ -241,6 +244,70 @@ function convertRgbaToBgra(frameBytes) {
   }
 
   return bgraBytes;
+}
+
+function createVirtualCameraDiagnosticFrame(frameIndex = 0) {
+  const frameBytes = Buffer.allocUnsafe(VIRTUAL_CAM_FRAME_STRIDE * VIRTUAL_CAM_FRAME_HEIGHT);
+  const phase = (frameIndex * 11) % VIRTUAL_CAM_FRAME_WIDTH;
+  const bandShift = (frameIndex * 3) & 0xff;
+
+  for (let y = 0; y < VIRTUAL_CAM_FRAME_HEIGHT; y += 1) {
+    const rowOffset = y * VIRTUAL_CAM_FRAME_STRIDE;
+    const yBand = Math.floor(y / 90);
+
+    for (let x = 0; x < VIRTUAL_CAM_FRAME_WIDTH; x += 1) {
+      const offset = rowOffset + (x * 4);
+      const xBand = Math.floor(x / 160);
+      const band = (xBand + yBand + Math.floor(bandShift / 32)) % 6;
+      const inPulse =
+        Math.abs(x - phase) < 36 ||
+        Math.abs(x - ((phase + 360) % VIRTUAL_CAM_FRAME_WIDTH)) < 18;
+
+      let blue = 42;
+      let green = 48;
+      let red = 56;
+
+      if (band === 0) {
+        blue = 215; green = 68; red = 86;
+      } else if (band === 1) {
+        blue = 70; green = 174; red = 232;
+      } else if (band === 2) {
+        blue = 85; green = 205; red = 118;
+      } else if (band === 3) {
+        blue = 235; green = 193; red = 73;
+      } else if (band === 4) {
+        blue = 190; green = 95; red = 220;
+      }
+
+      if (inPulse) {
+        blue = 255;
+        green = 255;
+        red = 255;
+      }
+
+      frameBytes[offset] = blue;
+      frameBytes[offset + 1] = green;
+      frameBytes[offset + 2] = red;
+      frameBytes[offset + 3] = 0xff;
+    }
+  }
+
+  return frameBytes;
+}
+
+function getVirtualCameraDiagnosticFrame(controller) {
+  const now = Date.now();
+  if (
+    controller.diagnosticFrame &&
+    (now - (controller.lastDiagnosticFrameAt ?? 0)) < VIRTUAL_CAM_DIAGNOSTIC_FRAME_INTERVAL_MS
+  ) {
+    return controller.diagnosticFrame;
+  }
+
+  controller.diagnosticFrameCounter = (controller.diagnosticFrameCounter ?? 0) + 1;
+  controller.diagnosticFrame = createVirtualCameraDiagnosticFrame(controller.diagnosticFrameCounter);
+  controller.lastDiagnosticFrameAt = now;
+  return controller.diagnosticFrame;
 }
 
 function getVirtualCameraPublisherCandidates() {
@@ -687,6 +754,14 @@ function updateRendererFrame(controller, payload) {
     return;
   }
 
+  if (isLikelyBlackFrame(frameBytes)) {
+    controller.stats.rendererBlackFramesDropped += 1;
+    if ((controller.stats.rendererBlackFramesDropped % VIRTUAL_CAM_FRAME_RATE) === 1) {
+      appendVirtualCameraLogLine('[warn] Dropping exact-black renderer frame before it reaches the virtual camera.');
+    }
+    return;
+  }
+
   const rendererFrame = {
     frameBytes,
     timestampHundredsOfNs: getTimestampHundredsOfNs(),
@@ -710,13 +785,29 @@ async function publishLatestRendererFrame(controller) {
   const nextBufferedFrame = controller.frameQueue.length > 0
     ? controller.frameQueue.shift()
     : null;
-  const frameToPublish = nextBufferedFrame ?? controller.lastPublishedFrame;
+  const cachedRendererFrame = controller.lastPublishedFrame?.diagnostic ? null : controller.lastPublishedFrame;
+  let frameToPublish = nextBufferedFrame ?? cachedRendererFrame;
+  let sourceLabel = nextBufferedFrame ? 'renderer' : 'cached-renderer';
+  let publishingDiagnosticFrame = false;
 
   if (!frameToPublish?.frameBytes) {
-    return;
+    publishingDiagnosticFrame = true;
+    sourceLabel = 'diagnostic';
+    frameToPublish = {
+      frameBytes: getVirtualCameraDiagnosticFrame(controller),
+      timestampHundredsOfNs: getTimestampHundredsOfNs(),
+      receivedAt: Date.now(),
+      sequence: (controller.diagnosticPublishSequence ?? 0) + 1,
+      diagnostic: true
+    };
+    controller.diagnosticPublishSequence = frameToPublish.sequence;
+    controller.stats.diagnosticFrames += 1;
+    if ((controller.stats.diagnosticFrames % VIRTUAL_CAM_FRAME_RATE) === 1) {
+      appendVirtualCameraLogLine('[warn] Publishing diagnostic virtual-camera frame because no processed renderer frame is available yet.');
+    }
   }
 
-  if (!nextBufferedFrame) {
+  if (!nextBufferedFrame && !publishingDiagnosticFrame) {
     const rendererFrameAgeMs = Date.now() - (frameToPublish.receivedAt ?? 0);
     if (rendererFrameAgeMs >= VIRTUAL_CAM_STALE_RENDERER_FRAME_MS) {
       controller.stats.staleCachedFrames += 1;
@@ -737,11 +828,13 @@ async function publishLatestRendererFrame(controller) {
       controller,
       frameToPublish.frameBytes,
       getTimestampHundredsOfNs(),
-      nextBufferedFrame ? 'renderer' : 'cached-renderer'
+      sourceLabel
     );
 
-    controller.lastPublishedFrame = frameToPublish;
-    controller.lastPublishedSequence = frameToPublish.sequence ?? controller.lastPublishedSequence;
+    if (!publishingDiagnosticFrame) {
+      controller.lastPublishedFrame = frameToPublish;
+      controller.lastPublishedSequence = frameToPublish.sequence ?? controller.lastPublishedSequence;
+    }
   } catch (error) {
     controller.stats.publishFailures += 1;
     console.error('Failed to push Surevideotool output into the virtual camera bridge:', error);
@@ -850,6 +943,10 @@ function ensureSurevideotoolCamPublisher() {
       rendererFrameSequence: 0,
       lastPublishedSequence: 0,
       lastStaleRendererWarningAt: 0,
+      diagnosticFrame: null,
+      diagnosticFrameCounter: 0,
+      diagnosticPublishSequence: 0,
+      lastDiagnosticFrameAt: 0,
       stats: {
         startedAt: Date.now(),
         lastLogAt: Date.now(),
@@ -859,7 +956,9 @@ function ensureSurevideotoolCamPublisher() {
         captureFailures: 0,
         publishFailures: 0,
         blackFrames: 0,
-        staleCachedFrames: 0
+        staleCachedFrames: 0,
+        diagnosticFrames: 0,
+        rendererBlackFramesDropped: 0
       }
     };
 
