@@ -124,7 +124,6 @@ The output must remain photorealistic and indistinguishable from a normal live c
 Never produce a cartoon, anime, illustration, painting, CGI, 3D render, beauty filter, or stylized look.`;
 const DEFAULT_ENHANCE = false;
 const POLLING_INTERVAL = 5000; // poll session-status every 5 s for live credit display
-const ENABLE_CAPTURE_WINDOW = import.meta.env.VITE_ENABLE_CAPTURE_WINDOW === 'true';
 const TRANSFORM_SYNC_DEBOUNCE_MS = 180;
 const AUTO_DOWNGRADE_SAMPLES = 3;
 const AUTO_UPGRADE_SAMPLES = 10;
@@ -138,6 +137,10 @@ const DECART_REALTIME_MODEL = 'lucy-2.1';
 const SUREVIDEOTOOL_CAM_FRAME_WIDTH = 1280;
 const SUREVIDEOTOOL_CAM_FRAME_HEIGHT = 720;
 const SUREVIDEOTOOL_CAM_FRAME_INTERVAL_MS = 1000 / 30;
+
+function canPublishVirtualCameraFrames() {
+  return typeof window !== 'undefined' && Boolean(window.electron?.sendVirtualCameraFrame);
+}
 
 function createEmptyStreamMetrics(): StreamMetrics {
   return {
@@ -931,7 +934,7 @@ function Dashboard() {
       playOutput();
     }
 
-    if (ENABLE_CAPTURE_WINDOW) {
+    if (canPublishVirtualCameraFrames()) {
       syncSurevideotoolCamStream(stream, statusMessage);
     }
   }, [markRemoteFrameFresh, startRemoteFrameMonitor, syncSurevideotoolCamStream]);
@@ -1859,7 +1862,7 @@ function Dashboard() {
     resetHealthCounters();
 
     try {
-      surevideotoolCamWindowEnabledRef.current = ENABLE_CAPTURE_WINDOW;
+      surevideotoolCamWindowEnabledRef.current = canPublishVirtualCameraFrames();
 
       const stream = await startWebcam(activeMode, { forceNewStream: true });
       if (!stream) {

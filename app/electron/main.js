@@ -670,7 +670,7 @@ function updateRendererFrame(controller, payload) {
     try {
       const srcBuffer = Buffer.from(pixels.buffer, pixels.byteOffset, pixels.byteLength);
       const bgraBuffer = convertRgbaToBgra(srcBuffer);
-      const img = nativeImage.createFromBuffer(bgraBuffer, { width: srcWidth, height: srcHeight });
+      const img = nativeImage.createFromBitmap(bgraBuffer, { width: srcWidth, height: srcHeight, scaleFactor: 1 });
       if (img.isEmpty()) {
         return;
       }

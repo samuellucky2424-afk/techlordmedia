@@ -1928,20 +1928,35 @@ namespace surevideotool::virtualcam
                             height));
             };
 
-            bool wroteRealFrame = false;
+            bool wroteBridgeFrame = false;
             bool wroteCachedFrame = false;
             if (hasFreshBridgeFrame)
             {
                 cachedBgraFrame_ = std::move(bgra);
                 cachedBgraConfig_ = sharedConfig;
                 hasCachedFrame_ = true;
-                wroteRealFrame = writeBgraFrame(cachedBgraFrame_.data(), cachedBgraConfig_);
+                wroteBridgeFrame = writeBgraFrame(cachedBgraFrame_.data(), cachedBgraConfig_);
             }
 
-            if (!wroteRealFrame && hasCachedFrame_)
+            bool wroteOutputFrame = wroteBridgeFrame;
+            if (!wroteOutputFrame && hasCachedFrame_)
             {
                 wroteCachedFrame = writeBgraFrame(cachedBgraFrame_.data(), cachedBgraConfig_);
-                wroteRealFrame = wroteCachedFrame;
+                wroteOutputFrame = wroteCachedFrame;
+            }
+
+            bool wroteFallbackFrame = false;
+            if (!wroteOutputFrame)
+            {
+                MediaConfig fallbackConfig = currentConfig;
+                fallbackConfig.width = width;
+                fallbackConfig.height = height;
+                fallbackConfig.stride = width * 4;
+
+                std::vector<uint8_t> fallbackBgra;
+                FillSyntheticBgra(fallbackConfig, sampleFrameIndex_, &fallbackBgra);
+                wroteFallbackFrame = writeBgraFrame(fallbackBgra.data(), fallbackConfig);
+                wroteOutputFrame = wroteFallbackFrame;
             }
 
             // 4) Per-frame heartbeat for diagnostics (single byte tweak; overwrites a
@@ -1960,17 +1975,19 @@ namespace surevideotool::virtualcam
             }
 
             // 5) Throttled diagnostic log (every 90 frames or when state changes).
-            if ((sampleFrameIndex_ % 90) == 0 || FAILED(readHr) || !hasFreshBridgeFrame || !wroteRealFrame)
+            if ((sampleFrameIndex_ % 90) == 0 || FAILED(readHr) || !hasFreshBridgeFrame || !wroteOutputFrame)
             {
                 wchar_t logLine[640]{};
                 if (SUCCEEDED(StringCchPrintfW(
                         logLine,
                         ARRAYSIZE(logLine),
-                        L"CreateNextSample hr=0x%08X fresh=%u real=%u cached=%u frameCounter=%llu sampleIndex=%llu shared=%ux%u stride=%u bgraBytes=%zu out=%zu",
+                        L"CreateNextSample hr=0x%08X fresh=%u bridge=%u cached=%u fallback=%u output=%u frameCounter=%llu sampleIndex=%llu shared=%ux%u stride=%u bgraBytes=%zu out=%zu",
                         static_cast<unsigned int>(readHr),
                         hasFreshBridgeFrame ? 1u : 0u,
-                        wroteRealFrame ? 1u : 0u,
+                        wroteBridgeFrame ? 1u : 0u,
                         wroteCachedFrame ? 1u : 0u,
+                        wroteFallbackFrame ? 1u : 0u,
+                        wroteOutputFrame ? 1u : 0u,
                         static_cast<unsigned long long>(frameCounter),
                         static_cast<unsigned long long>(sampleFrameIndex_),
                         sharedConfig.width,
